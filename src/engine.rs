@@ -51,6 +51,9 @@ const AHEAD: i64 = 3 * 86_400;
 const MAX_POINTS: usize = 2016;
 /// A station further off than this is not the tide where you are.
 const TOO_FAR_NM: f64 = 60.0;
+/// The most arrows one `streams` answer may carry. The whole bay is about
+/// 150, so this only ever bites on a region far larger than a chart shows.
+const MAX_STREAMS: usize = 400;
 
 pub struct Config {
     pub socket: PathBuf,
@@ -305,6 +308,7 @@ impl Tide {
                     "current": self.bay(at), "tide": self.bay_tide(at),
                 }))
             }
+            "streams" => with_id(self.streams(message)),
             "stations" => with_id(self.stations(message)),
             "" => with_id(error("a request needs a type")),
             other => with_id(error(&format!("omatide doesn't know the request {other}"))),
@@ -376,6 +380,84 @@ impl Tide {
         })
     }
 
+    /// The stream at every station over an area, at one moment: what a
+    /// chart layer draws.
+    ///
+    /// One bin per station, the one nearest the depth asked for, because
+    /// a chart wants one arrow in each channel and not three stacked on
+    /// top of each other.
+    fn streams(&self, message: &Value) -> Value {
+        let at = match asked_time(message, self.now()) {
+            Ok(at) => at,
+            Err(e) => return error(&e),
+        };
+        let depth = message
+            .get("depthM")
+            .and_then(Value::as_f64)
+            .filter(|d| (0.0..=200.0).contains(d))
+            .unwrap_or(self.settings.depth);
+        let area = match Area::read(message) {
+            Ok(area) => area,
+            Err(e) => return error(&e),
+        };
+        let mut found: Vec<(f64, Value)> = Vec::new();
+        let mut more = false;
+        for key in bay::all(&self.catalog, Kind::Current, depth) {
+            let Some(station) = self.catalog.get(&key) else {
+                continue;
+            };
+            if !area.holds(station.lat, station.lon) {
+                continue;
+            }
+            let away = area.distance_from(station.lat, station.lon);
+            if area.beyond(away) {
+                continue;
+            }
+            let Ok((speed, set)) = tides::stream(&self.catalog, &key, at) else {
+                continue;
+            };
+            let knots = speed * tides::KNOTS;
+            let mut m = json!({
+                "station": key,
+                "name": station.name,
+                "lat": round(station.lat, 5),
+                "lon": round(station.lon, 5),
+                "knots": round(knots.abs(), 2),
+                "way": way(knots),
+            });
+            if let Some(set) = set {
+                m["setDeg"] = round(set, 0).into();
+            }
+            if let Some(d) = station.depth {
+                m["depthM"] = round(d, 1).into();
+            }
+            if let Some(nm) = away {
+                m["distanceNm"] = round(nm, 2).into();
+            }
+            found.push((away.unwrap_or(0.0), m));
+        }
+        // Nearest first where a position was given, so a client that only
+        // wants the closest can stop reading.
+        if area.from.is_some() {
+            found.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+        if found.len() > MAX_STREAMS {
+            found.truncate(MAX_STREAMS);
+            more = true;
+        }
+        let mut answer = json!({
+            "type": "streams",
+            "v": VERSION,
+            "time": time::iso(at),
+            "depthM": round(depth, 1),
+            "streams": found.into_iter().map(|(_, m)| m).collect::<Vec<Value>>(),
+        });
+        if more {
+            answer["more"] = true.into();
+        }
+        answer
+    }
+
     fn stations(&self, message: &Value) -> Value {
         let only = message
             .get("kind")
@@ -443,6 +525,79 @@ impl Tide {
             .nearest(lat, lon, kind)
             .map(|(s, _)| s.key())
             .ok_or_else(|| format!("no {} station in the catalog", kind.name()))
+    }
+}
+
+/// Where a request wants stations from: a box, a position with a radius,
+/// or both. Everything is optional; nothing given means everywhere.
+struct Area {
+    box_: Option<(f64, f64, f64, f64)>,
+    from: Option<(f64, f64)>,
+    within_nm: Option<f64>,
+}
+
+impl Area {
+    fn read(m: &Value) -> Result<Area, String> {
+        let number = |name: &str| -> Result<Option<f64>, String> {
+            match m.get(name) {
+                None | Some(Value::Null) => Ok(None),
+                Some(v) => v
+                    .as_f64()
+                    .filter(|n| n.is_finite())
+                    .map(Some)
+                    .ok_or_else(|| format!("{name} must be a number")),
+            }
+        };
+        let (south, west, north, east) = (
+            number("south")?,
+            number("west")?,
+            number("north")?,
+            number("east")?,
+        );
+        let box_ = match (south, west, north, east) {
+            (Some(s), Some(w), Some(n), Some(e)) if s <= n && w <= e => Some((s, w, n, e)),
+            (None, None, None, None) => None,
+            _ => {
+                return Err(
+                    "south, west, north and east must all be given, south below north".into(),
+                );
+            }
+        };
+        let from = match (number("lat")?, number("lon")?) {
+            (Some(lat), Some(lon))
+                if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) =>
+            {
+                Some((lat, lon))
+            }
+            (None, None) => None,
+            _ => return Err("lat and lon must be a position on the earth".into()),
+        };
+        let within_nm = number("withinNm")?.filter(|n| *n >= 0.0);
+        Ok(Area {
+            box_,
+            from,
+            within_nm,
+        })
+    }
+
+    fn holds(&self, lat: f64, lon: f64) -> bool {
+        match self.box_ {
+            None => true,
+            Some((s, w, n, e)) => (s..=n).contains(&lat) && (w..=e).contains(&lon),
+        }
+    }
+
+    fn distance_from(&self, lat: f64, lon: f64) -> Option<f64> {
+        self.from
+            .map(|(from_lat, from_lon)| crate::station::haversine_nm(from_lat, from_lon, lat, lon))
+    }
+
+    /// Outside the radius, where one was asked for.
+    fn beyond(&self, away: Option<f64>) -> bool {
+        match (away, self.within_nm) {
+            (Some(nm), Some(limit)) => nm > limit,
+            _ => false,
+        }
     }
 }
 

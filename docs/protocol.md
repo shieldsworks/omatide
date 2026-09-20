@@ -121,6 +121,33 @@ scrubber uses.
 The answer carries `current` and `tide` arrays shaped like `state.bay`,
 the tide one with `heightM` in place of `knots` and `way`.
 
+`streams` asks for the stream at every station over an area, at one
+moment: what a chart layer draws. omahelm's stream layer uses it, the way
+its wind layer uses omawind's `field`.
+
+```json
+{"type":"streams","id":8,"south":37.7,"west":-122.6,"north":37.95,"east":-122.3,
+ "time":"2026-09-21T22:00:00Z","depthM":3}
+```
+
+Every field is optional. A box keeps only the stations inside it; `lat`
+and `lon` sort the answer nearest first and add `distanceNm` to each, and
+`withinNm` drops what is further off than that. `time` defaults to now and
+`depthM` to the engine's `depth` setting.
+
+```json
+{"type":"streams","v":1,"id":8,"time":"2026-09-21T22:00:00Z","depthM":3.0,
+ "streams":[{"station":"SFB1212-9","name":"Raccoon Strait",
+             "lat":37.87190,"lon":-122.44200,"depthM":5.8,
+             "knots":0.62,"way":"ebb","setDeg":237}]}
+```
+
+One bin per station, the one nearest `depthM`, because a chart wants one
+arrow in each channel rather than three stacked on top of each other. At
+most 400 stations come back; `"more": true` says some were left out. The
+whole bay is about 150, so that only bites on an area far larger than a
+chart shows.
+
 `stations` lists the catalog, for drawing a map.
 
 ```json

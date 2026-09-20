@@ -46,6 +46,8 @@ fn catalog(dir: &Path) {
     };
     station("GATE", Kind::Tide, 37.8063, -122.4659, Source::Harmonic);
     station("STREAM", Kind::Current, 37.8292, -122.462, Source::Harmonic);
+    // Fifteen miles down the bay, to have something to filter out.
+    station("SOUTH", Kind::Current, 37.6255, -122.2961, Source::Harmonic);
     let mut h = Harmonics::default();
     let m2 = omatide::constituent::index_of("M2").unwrap();
     let k1 = omatide::constituent::index_of("K1").unwrap();
@@ -57,7 +59,8 @@ fn catalog(dir: &Path) {
     c.insert_harmonics("GATE".into(), h.clone());
     h.amplitude[m2] = 80.0;
     h.offset = 0.0;
-    c.insert_harmonics("STREAM".into(), h);
+    c.insert_harmonics("STREAM".into(), h.clone());
+    c.insert_harmonics("SOUTH".into(), h);
     cache::save(dir, &c).unwrap();
 }
 
@@ -148,7 +151,7 @@ fn an_app_is_greeted_and_told_the_whole_state() {
     // No omakeel, so the tide is reported at home.
     assert_eq!(state["here"]["at"], "home");
     assert_eq!(state["stations"]["tide"], 1);
-    assert_eq!(state["stations"]["current"], 1);
+    assert_eq!(state["stations"]["current"], 2);
 
     let tide = &state["tide"];
     assert_eq!(tide["station"], "GATE");
@@ -271,4 +274,101 @@ fn two_engines_cant_share_one_socket() {
         .block_on(engine::run(second))
         .unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::AddrInUse, "{e}");
+}
+
+#[test]
+fn streams_over_an_area_are_what_a_chart_layer_draws() {
+    let engine = start("streams");
+    let mut app = App::connect(&engine);
+    app.read();
+    app.read();
+
+    // Everywhere.
+    let all = app.ask(json!({"type": "streams", "id": 1}));
+    assert_eq!(all["type"], "streams");
+    assert_eq!(all["time"], "2026-09-20T12:00:00Z");
+    let found = all["streams"].as_array().unwrap();
+    assert_eq!(found.len(), 2);
+    assert!(all.get("more").is_none(), "nothing was truncated");
+    for s in found {
+        // A stream's size is never negative; `way` says which way it runs.
+        assert!(s["knots"].as_f64().unwrap() >= 0.0);
+        assert!(["flood", "ebb", "slack"].contains(&s["way"].as_str().unwrap()));
+        assert_eq!(s["setDeg"], if s["way"] == "ebb" { 238.0 } else { 52.0 });
+        assert!(s["lat"].as_f64().is_some() && s["lon"].as_f64().is_some());
+        // No position was asked from, so there is no distance to give.
+        assert!(s.get("distanceNm").is_none());
+    }
+    // Tide stations are not streams.
+    assert!(found.iter().all(|s| s["station"] != "GATE"));
+
+    // A box keeps only what is inside it.
+    let box_ = app.ask(
+        json!({"type": "streams", "id": 2, "south": 37.8, "west": -122.5,
+                              "north": 37.9, "east": -122.4}),
+    );
+    let found = box_["streams"].as_array().unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0]["station"], "STREAM");
+
+    // A position sorts nearest first and measures the range.
+    let near = app.ask(json!({"type": "streams", "id": 3, "lat": 37.63, "lon": -122.30}));
+    let found = near["streams"].as_array().unwrap();
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0]["station"], "SOUTH");
+    assert!(found[0]["distanceNm"].as_f64().unwrap() < 1.0);
+    assert!(found[1]["distanceNm"].as_f64().unwrap() > 10.0);
+
+    // With a radius, only what is inside it.
+    let close = app.ask(
+        json!({"type": "streams", "id": 4, "lat": 37.63, "lon": -122.30,
+                               "withinNm": 5}),
+    );
+    assert_eq!(close["streams"].as_array().unwrap().len(), 1);
+
+    // The stream moves with the time asked for.
+    let later = app.ask(json!({"type": "streams", "id": 5, "time": "2026-09-20T15:00:00Z"}));
+    assert_eq!(later["time"], "2026-09-20T15:00:00Z");
+    let before = all["streams"][0]["knots"].as_f64().unwrap();
+    let after = later["streams"][0]["knots"].as_f64().unwrap();
+    assert!((before - after).abs() > 0.01, "{before} then {after}");
+}
+
+#[test]
+fn a_streams_request_that_makes_no_sense_is_refused() {
+    let engine = start("streams-bad");
+    let mut app = App::connect(&engine);
+    app.read();
+    app.read();
+
+    for (request, wanted) in [
+        // Half a box is not a box.
+        (
+            json!({"type": "streams", "id": 1, "south": 37.8}),
+            "must all be given",
+        ),
+        // Upside down.
+        (
+            json!({"type": "streams", "id": 2, "south": 37.9, "west": -122.5,
+                   "north": 37.8, "east": -122.4}),
+            "south below north",
+        ),
+        (
+            json!({"type": "streams", "id": 3, "lat": 91, "lon": 0}),
+            "on the earth",
+        ),
+        (
+            json!({"type": "streams", "id": 4, "lat": "north"}),
+            "must be a number",
+        ),
+        (
+            json!({"type": "streams", "id": 5, "time": "soon"}),
+            "isn't a UTC time",
+        ),
+    ] {
+        let m = app.ask(request.clone());
+        assert_eq!(m["type"], "error", "{request}");
+        let said = m["message"].as_str().unwrap();
+        assert!(said.contains(wanted), "{request} said {said}");
+    }
 }
