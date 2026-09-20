@@ -1,0 +1,8 @@
+singleton Tide 1.0 Tide.qml
+TideBar 1.0 TideBar.qml
+Summary 1.0 Summary.qml
+TideChart 1.0 TideChart.qml
+BayChart 1.0 BayChart.qml
+TideWindow 1.0 TideWindow.qml
+Panel 1.0 Panel.qml
+Theme 1.0 Theme.qml
