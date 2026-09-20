@@ -1,0 +1,18 @@
+[package]
+name = "omatide"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Tides and currents for Omahoy: NOAA's harmonic constants, predicted from scratch, with a model of San Francisco Bay"
+license = "MIT"
+repository = "https://github.com/shieldsworks/omatide"
+homepage = "https://omahoy.org"
+
+[dependencies]
+serde_json = "1"
+# flock for the socket's lock file, as omakeel, omahelm and omawind do.
+libc = "0.2"
+tokio = { version = "1.53", features = ["rt", "net", "time", "sync", "io-util", "macros", "signal"] }
+
+[profile.release]
+debug = "line-tables-only"

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "org.omahoy.tide",
+  "name": "Omatide",
+  "version": "0.1.0",
+  "author": "Casey Shields",
+  "license": "MIT",
+  "homepage": "https://omahoy.org",
+  "description": "The tide at the boat and the stream through the bay, predicted from NOAA's harmonic constants from scratch",
+  "kinds": [
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "barWidget": "ui/TideBar.qml",
+    "panel": "ui/Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omatide",
+    "description": "The tide at the boat, the next high or low, and the stream",
+    "category": "Navigation",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
