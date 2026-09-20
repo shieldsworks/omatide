@@ -89,6 +89,13 @@ Item {
 
     onCurveChanged: face.requestPaint()
     onNowChanged: face.requestPaint()
+    // As the bay's chart does: a theme change repaints, rather than waiting
+    // for the next minute's now line to carry the new colors in.
+    onInkChanged: face.requestPaint()
+    onAccentChanged: face.requestPaint()
+    onWarnChanged: face.requestPaint()
+    onPaperChanged: face.requestPaint()
+    onTextSizeChanged: face.requestPaint()
     onScrubAtChanged: face.requestPaint()
     onWidthChanged: face.requestPaint()
     onHeightChanged: face.requestPaint()
