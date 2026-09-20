@@ -141,6 +141,8 @@ Item {
             else if (key === "[") app.stepBay(-1);
             else if (key === "]") app.stepBay(1);
             else if (key === "0") app.followNow();
+            else if (key === "+" || key === "=") map.zoomStep(map.notch);
+            else if (key === "-") map.zoomStep(1 / map.notch);
         }
         // The bay map: zoom about a point, and back to the whole bay.
         function zoom(factor: real, x: real, y: real): void { map.zoomAt(factor, x, y); }
@@ -191,6 +193,10 @@ Item {
                 else if (e.key === Qt.Key_BracketLeft) app.stepBay(-1);
                 else if (e.key === Qt.Key_BracketRight) app.stepBay(1);
                 else if (e.key === Qt.Key_0 || e.key === Qt.Key_Home) app.followNow();
+                // Both the shifted key and the one printed on it, so + is
+                // whatever the reader's layout calls it, keypad included.
+                else if (e.key === Qt.Key_Plus || e.key === Qt.Key_Equal) map.zoomStep(map.notch);
+                else if (e.key === Qt.Key_Minus || e.key === Qt.Key_Underscore) map.zoomStep(1 / map.notch);
                 else return;
                 e.accepted = true;
             }
@@ -352,7 +358,7 @@ Item {
                     const when = Math.abs(app.at - app.now) < 60000
                         ? "now" : Tide.clock(new Date(app.at).toISOString(), true);
                     return "The stream through San Francisco Bay, " + when
-                        + "   ·   scroll to zoom, drag to pan"
+                        + "   ·   scroll or +/- to zoom, drag to pan"
                         + "   ·   drag the bar, [ and ] step an hour, 0 back to now";
                 }
                 opacity: map.pointedAt ? 0.95 : 0.6

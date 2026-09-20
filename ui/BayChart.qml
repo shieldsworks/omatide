@@ -11,9 +11,9 @@ import "coast.js" as Coast
 // meters, with no soundings and no marks. omahelm is the thing you
 // navigate by; this is the thing you plan on.
 //
-// Scroll to zoom and drag to pan, because a dozen of the bay's places
-// sit inside two miles off Angel Island and the whole bay can't show
-// them all at once. Double-click goes back to the whole bay.
+// Scroll or + and - to zoom, and drag to pan, because a dozen of the
+// bay's places sit inside two miles off Angel Island and the whole bay
+// can't show them all at once. Double-click goes back to the whole bay.
 //
 // What it is for is the thing a list of numbers can't show — that the
 // Gate can be flooding while Carquinez still ebbs, and that Raccoon
@@ -70,6 +70,9 @@ Item {
     // the narrows off Angel Island want about 6.
     property real zoom: 1
     readonly property real maxZoom: 12
+    // One step in or out. A wheel notch and a key press move the same
+    // amount, so the map answers the two the same way.
+    readonly property real notch: 1.25
     // The point the view is centered on, in degrees. Kept in degrees and
     // not pixels so a resize doesn't slide the bay sideways. `placed`
     // says whether it has been moved: a longitude of 0 is Greenwich, not
@@ -148,6 +151,14 @@ Item {
         centerLon = lon - (x - width / 2) / (shrink * scale * zoom);
         centerLat = lat + (y - height / 2) / (scale * zoom);
         settle();
+    }
+
+    // Zooming from the keyboard, which has no pointer of its own: about
+    // the pointer when it is over the map, and otherwise about the middle
+    // of the view, which is what the reader is looking at.
+    function zoomStep(factor) {
+        zoomAt(factor, input.containsMouse ? input.mouseX : width / 2,
+                       input.containsMouse ? input.mouseY : height / 2);
     }
 
     onArrowsChanged: face.requestPaint()
@@ -358,7 +369,7 @@ Item {
         onWheel: wheel => {
             const steps = wheel.angleDelta.y / 120;
             if (!steps) return;
-            bay.zoomAt(Math.pow(1.25, steps), wheel.x, wheel.y);
+            bay.zoomAt(Math.pow(bay.notch, steps), wheel.x, wheel.y);
         }
         onDoubleClicked: bay.home()
         cursorShape: bay.zoomed ? (pressed && dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor)

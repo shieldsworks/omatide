@@ -104,10 +104,12 @@ of it, so `depth` is shallow by default.
 | `n` | Night Watch: red on black, for this window |
 | `[` `]` | step the bay an hour back or on |
 | `0` | back to now |
+| `+` `-` | zoom the bay in and out |
 | `q`, Escape | close |
 
 Drag the bar under the bay to watch it turn. Hover a chart to read the
-height or the speed at that moment.
+height or the speed at that moment. On the bay: scroll or `+` and `-` to
+zoom, drag to pan, double-click for the whole bay again.
 
 ## Where the numbers come from
 
