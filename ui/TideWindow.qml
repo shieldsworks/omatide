@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 // The tide in a window of its own: the height where the boat is, the
 // stream at the nearest station, and the whole of San Francisco Bay at
@@ -128,6 +129,43 @@ Item {
     readonly property var bayArrows: {
         if (!scrubbing && Math.abs(at - now) < 60000) return Tide.bay;
         return bayNow && Array.isArray(bayNow.current) ? bayNow.current.filter(Tide.isArrow) : [];
+    }
+
+    // For checks and captures, where no mouse or keyboard can be driven:
+    //   quickshell ipc -p ui/shell.qml call omatide status
+    // As omahelm's window does.
+    IpcHandler {
+        target: "omatide"
+        function press(key: string): void {
+            if (key === "n") app.theme.night = !app.theme.night;
+            else if (key === "[") app.stepBay(-1);
+            else if (key === "]") app.stepBay(1);
+            else if (key === "0") app.followNow();
+        }
+        // The bay map: zoom about a point, and back to the whole bay.
+        function zoom(factor: real, x: real, y: real): void { map.zoomAt(factor, x, y); }
+        function home(): void { map.home(); }
+        function hover(x: real, y: real): void { map.highlight = map.nearest(x, y); }
+        function status(): string {
+            return JSON.stringify({
+                engine: Tide.connected, stations: Tide.state ? Tide.state.stations : null,
+                here: Tide.here, tide: app.water ? app.water.station : "",
+                heightM: app.water ? app.water.heightM : null,
+                current: app.stream ? app.stream.station : "",
+                knots: app.stream ? app.stream.knots : null,
+                way: app.stream ? app.stream.way : "",
+                bay: app.bayArrows.length, at: new Date(app.at).toISOString(),
+                scrubbing: app.scrubbing,
+                tideCurve: app.tideCurve ? app.tideCurve.values.length : -1,
+                currentCurve: app.currentCurve ? app.currentCurve.values.length : -1,
+                zoom: Math.round(map.zoom * 100) / 100, placed: map.placed,
+                mapW: Math.round(map.width), mapH: Math.round(map.height),
+                centerLat: Math.round(map.middleLat() * 10000) / 10000,
+                centerLon: Math.round(map.middleLon() * 10000) / 10000,
+                pointedAt: map.pointedAt ? map.pointedAt.place : "",
+                night: app.theme.night
+            });
+        }
     }
 
     FloatingWindow {
@@ -314,6 +352,7 @@ Item {
                     const when = Math.abs(app.at - app.now) < 60000
                         ? "now" : Tide.clock(new Date(app.at).toISOString(), true);
                     return "The stream through San Francisco Bay, " + when
+                        + "   ·   scroll to zoom, drag to pan"
                         + "   ·   drag the bar, [ and ] step an hour, 0 back to now";
                 }
                 opacity: map.pointedAt ? 0.95 : 0.6
