@@ -142,7 +142,7 @@ Item {
             else if (key === "]") app.stepBay(1);
             else if (key === "0") app.followNow();
             else if (key === "+" || key === "=") map.zoomStep(map.notch);
-            else if (key === "-") map.zoomStep(1 / map.notch);
+            else if (key === "-" || key === "_") map.zoomStep(1 / map.notch);
         }
         // The bay map: zoom about a point, and back to the whole bay.
         function zoom(factor: real, x: real, y: real): void { map.zoomAt(factor, x, y); }
