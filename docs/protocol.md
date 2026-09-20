@@ -69,7 +69,9 @@ copy.
   started `--no-keel`.
 - `here.at` is `boat` when omakeel has a fix and `home` otherwise.
 - `tide` and `current` are the nearest predictable station of each kind,
-  and are left out when there is none within 60 nautical miles.
+  and are left out when there is none within 60 nautical miles. A current
+  station's bins all sit at one position, so the bin is the one nearest
+  the `depth` in the settings.
 - `follows` names the reference station, for a subordinate station.
 - `way` is `flood`, `ebb` or `slack`. `setDeg` is left out where NOAA
   doesn't say which way the stream sets.

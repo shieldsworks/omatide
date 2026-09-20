@@ -163,7 +163,7 @@ impl Tide {
 
     /// The nearest station of a kind, with what it says now and next.
     fn nearest(&self, lat: f64, lon: f64, kind: Kind, now: i64) -> Option<Value> {
-        let (station, nm) = self.catalog.nearest(lat, lon, kind)?;
+        let (station, nm) = self.catalog.nearest(lat, lon, kind, self.settings.depth)?;
         if nm > TOO_FAR_NM {
             return None;
         }
@@ -522,7 +522,7 @@ impl Tide {
             }
         };
         self.catalog
-            .nearest(lat, lon, kind)
+            .nearest(lat, lon, kind, self.settings.depth)
             .map(|(s, _)| s.key())
             .ok_or_else(|| format!("no {} station in the catalog", kind.name()))
     }
@@ -748,8 +748,15 @@ pub async fn run(config: Config) -> io::Result<()> {
                                 }
                             }
                             Update::Lost => {
-                                if tide.keel != "lost" {
+                                // With omakeel gone there is no boat to
+                                // be at. Keeping the last fix would go
+                                // on answering for a position that is
+                                // only getting older, so the tide falls
+                                // back to home, which is at least where
+                                // it says it is.
+                                if tide.keel != "lost" || tide.boat.is_some() {
                                     tide.keel = "lost";
+                                    tide.boat = None;
                                     changed = true;
                                 }
                             }

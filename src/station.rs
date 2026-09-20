@@ -193,12 +193,23 @@ impl Catalog {
 
     /// The nearest station of a kind that can be predicted, and how far
     /// off it is in nautical miles.
-    pub fn nearest(&self, lat: f64, lon: f64, kind: Kind) -> Option<(&Station, f64)> {
+    ///
+    /// A current station's bins all sit at one position, so distance
+    /// alone can't choose between them and whichever NOAA happened to
+    /// list first would win. `depth` breaks that tie the way
+    /// `bay::key_for` does: the bin nearest the depth wanted, with an
+    /// unmeasured one last. A tide station has one gauge, so it has no
+    /// bins to choose between and `depth` never comes into it.
+    pub fn nearest(&self, lat: f64, lon: f64, kind: Kind, depth: f64) -> Option<(&Station, f64)> {
         self.stations
             .iter()
             .filter(|s| s.kind == kind && self.is_ready(&s.key()))
-            .map(|s| (s, s.distance_from(lat, lon)))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|s| {
+                let off = s.depth.map_or(f64::MAX / 2.0, |d| (d - depth).abs());
+                (s, s.distance_from(lat, lon), off)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.2.total_cmp(&b.2)))
+            .map(|(s, nm, _)| (s, nm))
     }
 
     /// Every predictable station of a kind within a distance, nearest
@@ -517,14 +528,55 @@ mod tests {
     }
 
     #[test]
+    fn the_nearest_current_is_the_bin_nearest_the_depth_wanted() {
+        let mut c = Catalog::default();
+        let mut bin = |id: &str, n: u32, lat, lon, depth| {
+            c.stations.push(Station {
+                id: id.into(),
+                bin: Some(n),
+                name: format!("{id} bin {n}"),
+                lat,
+                lon,
+                kind: Kind::Current,
+                depth: Some(depth),
+                flood_direction: Some(57.0),
+                ebb_direction: Some(237.0),
+                source: Source::Harmonic,
+            });
+        };
+        // Three bins of one station, all at one position, listed deep
+        // first so the answer can't come from the order.
+        bin("SFB1212", 1, 37.8719, -122.442, 30.0);
+        bin("SFB1212", 2, 37.8719, -122.442, 12.0);
+        bin("SFB1212", 3, 37.8719, -122.442, 4.6);
+        // And a nearer station, whose only bin is deep.
+        bin("SFB1203", 1, 37.8721, -122.4421, 40.0);
+        let mut h = Harmonics::default();
+        h.amplitude[index_of("M2").unwrap()] = 80.0;
+        for key in ["SFB1212-1", "SFB1212-2", "SFB1212-3", "SFB1203-1"] {
+            c.insert_harmonics(key.into(), h.clone());
+        }
+
+        // Distance wins first: the nearer station, whatever its depth.
+        let (s, _) = c.nearest(37.872, -122.4421, Kind::Current, 3.0).unwrap();
+        assert_eq!(s.key(), "SFB1203-1");
+        // Between bins of one station distance is a tie, so the depth
+        // asked for decides - a boat feels the top of the stream.
+        let (s, _) = c.nearest(37.8719, -122.442, Kind::Current, 3.0).unwrap();
+        assert_eq!(s.key(), "SFB1212-3");
+        let (s, _) = c.nearest(37.8719, -122.442, Kind::Current, 25.0).unwrap();
+        assert_eq!(s.key(), "SFB1212-1");
+    }
+
+    #[test]
     fn the_nearest_station_is_one_that_can_be_predicted() {
         let c = sample();
         // Off Sausalito: the nearest tide station is Sausalito itself.
-        let (s, nm) = c.nearest(37.85, -122.48, Kind::Tide).unwrap();
+        let (s, nm) = c.nearest(37.85, -122.48, Kind::Tide, 3.0).unwrap();
         assert_eq!(s.id, "9414806");
         assert!(nm < 1.0, "{nm} nm");
         // No current station is ready, so there is no nearest current.
-        assert!(c.nearest(37.85, -122.48, Kind::Current).is_none());
+        assert!(c.nearest(37.85, -122.48, Kind::Current, 3.0).is_none());
         let near = c.within(37.85, -122.48, Kind::Tide, 50.0);
         assert_eq!(near.len(), 2);
         assert!(near[0].1 <= near[1].1);

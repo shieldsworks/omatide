@@ -70,12 +70,16 @@ struct Engine {
 }
 
 fn start(name: &str) -> Engine {
+    start_with_keel(name, None)
+}
+
+fn start_with_keel(name: &str, keel: Option<PathBuf>) -> Engine {
     let dir = scratch(name);
     catalog(&dir);
     let socket = dir.join("tide.sock");
     let config = engine::Config {
         socket: socket.clone(),
-        keel: None,
+        keel,
         data: dir.clone(),
         settings: dir.join("config.toml"),
         clock,
@@ -120,6 +124,19 @@ impl App {
         let mut line = String::new();
         self.reader.read_line(&mut line).unwrap();
         serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {line}"))
+    }
+
+    /// The next `state` that satisfies a test, or a panic at the read
+    /// timeout. The engine pushes one whenever anything changes.
+    fn wait_for(&mut self, mut ready: impl FnMut(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let m = self.read();
+            if m["type"] == "state" && ready(&m) {
+                return m;
+            }
+        }
+        panic!("the engine never sent the state the test was waiting for");
     }
 
     fn ask(&mut self, request: Value) -> Value {
@@ -371,4 +388,48 @@ fn a_streams_request_that_makes_no_sense_is_refused() {
         let said = m["message"].as_str().unwrap();
         assert!(said.contains(wanted), "{request} said {said}");
     }
+}
+
+/// omakeel, for as long as one fix: it says where the boat is, then goes
+/// away, which is what a pulled plug looks like from here.
+fn fake_keel(dir: &Path) -> PathBuf {
+    let path = dir.join("keel.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let fix = json!({
+                "type": "state", "v": 1,
+                "fix": {"status": "ok", "lat": 37.8292, "lon": -122.462, "ageSeconds": 0},
+                "sources": [],
+            });
+            let _ = stream.write_all((fix.to_string() + "\n").as_bytes());
+            let _ = stream.flush();
+            std::thread::sleep(Duration::from_millis(400));
+            // Dropped: omakeel is gone.
+        }
+    });
+    path
+}
+
+#[test]
+fn a_lost_keel_falls_back_to_home() {
+    let dir = scratch("lost-keel");
+    let keel = fake_keel(&dir);
+    let engine = start_with_keel("lost-keel-engine", Some(keel));
+    let mut app = App::connect(&engine);
+    assert_eq!(app.read()["type"], "hello");
+
+    // While omakeel is there, the tide is at the boat.
+    let boat = app.wait_for(|s| s["here"]["at"] == "boat");
+    assert_eq!(boat["keel"], "connected");
+    let at_boat = boat["tide"]["station"].clone();
+
+    // When it goes, the last fix goes with it: a position that is only
+    // getting older is not somewhere to keep answering for.
+    let home = app.wait_for(|s| s["keel"] == "lost");
+    assert_eq!(home["here"]["at"], "home");
+    assert!(home["here"]["lat"].as_f64().is_some());
+    // And the answers follow it home.
+    assert_ne!(home["tide"]["station"], Value::Null);
+    assert_eq!(at_boat, json!("GATE"));
 }
