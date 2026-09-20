@@ -163,6 +163,13 @@ Item {
 
     onArrowsChanged: face.requestPaint()
     onHighlightChanged: face.requestPaint()
+    // The canvas holds whatever it last painted, so a theme change - Night
+    // Watch above all - has to ask for it again, or the bay keeps the old
+    // theme's colors until an arrow happens to move.
+    onInkChanged: face.requestPaint()
+    onAccentChanged: face.requestPaint()
+    onWarnChanged: face.requestPaint()
+    onTextSizeChanged: face.requestPaint()
     onZoomChanged: face.requestPaint()
     onCenterLatChanged: face.requestPaint()
     onCenterLonChanged: face.requestPaint()
