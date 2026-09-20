@@ -11,6 +11,10 @@ import "coast.js" as Coast
 // meters, with no soundings and no marks. omahelm is the thing you
 // navigate by; this is the thing you plan on.
 //
+// Scroll to zoom and drag to pan, because a dozen of the bay's places
+// sit inside two miles off Angel Island and the whole bay can't show
+// them all at once. Double-click goes back to the whole bay.
+//
 // What it is for is the thing a list of numbers can't show — that the
 // Gate can be flooding while Carquinez still ebbs, and that Raccoon
 // Strait turns before either.
@@ -62,22 +66,98 @@ Item {
         const tall = Math.max(1e-6, bounds.n - bounds.s);
         return Math.min((width - 2 * pad) / wide, (height - 2 * pad) / tall);
     }
-    readonly property real offsetX: bounds
-        ? (width - (bounds.e - bounds.w) * shrink * scale) / 2 : 0
-    readonly property real offsetY: bounds
-        ? (height - (bounds.n - bounds.s) * scale) / 2 : 0
+    // Zoom, and where the middle of the view sits. 1 is the whole bay;
+    // the narrows off Angel Island want about 6.
+    property real zoom: 1
+    readonly property real maxZoom: 12
+    // The point the view is centered on, in degrees. Kept in degrees and
+    // not pixels so a resize doesn't slide the bay sideways. `placed`
+    // says whether it has been moved: a longitude of 0 is Greenwich, not
+    // "unset", so it can't stand in for one.
+    property real centerLat: 0
+    property real centerLon: 0
+    property bool placed: false
+    readonly property bool zoomed: zoom > 1.001
+
+    // Un-zoomed, the bay sits in the middle of whatever room there is.
+    function middleLat() { return placed ? centerLat : (bounds ? (bounds.s + bounds.n) / 2 : 0); }
+    function middleLon() { return placed ? centerLon : (bounds ? (bounds.w + bounds.e) / 2 : 0); }
+
+    function home() {
+        zoom = 1;
+        placed = false;
+    }
+    // Back to the whole bay whenever the places change out from under it,
+    // so a view can't be left pointing at nothing.
+    onBoundsChanged: if (!arrows.length) home()
 
     function xOf(lon) {
-        return bounds ? offsetX + (lon - bounds.w) * shrink * scale : 0;
+        return bounds ? width / 2 + (lon - middleLon()) * shrink * scale * zoom : 0;
     }
     function yOf(lat) {
-        return bounds ? offsetY + (bounds.n - lat) * scale : 0;
+        return bounds ? height / 2 - (lat - middleLat()) * scale * zoom : 0;
+    }
+    // And back again, for zooming about the pointer.
+    function lonAt(x) {
+        return bounds ? middleLon() + (x - width / 2) / (shrink * scale * zoom) : 0;
+    }
+    function latAt(y) {
+        return bounds ? middleLat() - (y - height / 2) / (scale * zoom) : 0;
+    }
+
+    // Keeps the view over the bay, so it can never be dragged off into
+    // the ocean.
+    //
+    // What may be panned is what the canvas can't already see. The
+    // window is often far wider than the bay is at this scale, and then
+    // there is nothing to pan sideways on at all — clamping to the
+    // frame's own width instead of the view's pinned the middle and
+    // stopped zoom moving where it was told.
+    function settle() {
+        // Nothing to hold in place until the view has been moved.
+        if (!bounds || !placed || scale <= 0) return;
+        const seesLon = (width / 2) / (shrink * scale * zoom);
+        const seesLat = (height / 2) / (scale * zoom);
+        const halfLon = (bounds.e - bounds.w) / 2;
+        const halfLat = (bounds.n - bounds.s) / 2;
+        const lon = middleLon(), lat = middleLat();
+        centerLon = seesLon >= halfLon
+            ? (bounds.w + bounds.e) / 2
+            : Math.max(bounds.w + seesLon, Math.min(bounds.e - seesLon, lon));
+        centerLat = seesLat >= halfLat
+            ? (bounds.s + bounds.n) / 2
+            : Math.max(bounds.s + seesLat, Math.min(bounds.n - seesLat, lat));
+    }
+
+    // Zooms about a point on screen, so whatever is under the pointer
+    // stays under it.
+    function zoomAt(factor, x, y) {
+        const next = Math.max(1, Math.min(maxZoom, zoom * factor));
+        if (next === zoom) return;
+        if (next === 1) {
+            home();
+            return;
+        }
+        // Where the pointer is now, read at the zoom we are leaving.
+        // Reading it after the change would give the middle back every
+        // time, and the view would never move.
+        const lon = lonAt(x), lat = latAt(y);
+        zoom = next;
+        // Solve for the middle that leaves (lon, lat) where it was.
+        placed = true;
+        centerLon = lon - (x - width / 2) / (shrink * scale * zoom);
+        centerLat = lat + (y - height / 2) / (scale * zoom);
+        settle();
     }
 
     onArrowsChanged: face.requestPaint()
     onHighlightChanged: face.requestPaint()
-    onWidthChanged: face.requestPaint()
-    onHeightChanged: face.requestPaint()
+    onZoomChanged: face.requestPaint()
+    onCenterLatChanged: face.requestPaint()
+    onCenterLonChanged: face.requestPaint()
+    onPlacedChanged: face.requestPaint()
+    onWidthChanged: { settle(); face.requestPaint(); }
+    onHeightChanged: { settle(); face.requestPaint(); }
 
     Canvas {
         id: face
@@ -231,17 +311,58 @@ Item {
         g.fillStyle = ink;
         g.textAlign = "right";
         g.fillText("longest arrow " + fastest.toFixed(1) + " kn", width - 8, height - 8);
+        if (zoomed) {
+            g.fillText("×" + zoom.toFixed(1) + "  double-click for the whole bay",
+                       width - 8, height - 20);
+        }
         g.globalAlpha = 1;
     }
 
     MouseArea {
+        id: input
         anchors.fill: parent
         hoverEnabled: true
-        onPositionChanged: mouse => bay.highlight = bay.nearest(mouse.x, mouse.y)
-        onExited: bay.highlight = ""
-        onClicked: {
-            if (bay.highlight) bay.picked(bay.highlight);
+        acceptedButtons: Qt.LeftButton
+        // Where a press started, and whether it has become a drag. A
+        // press that never moves is a click on a place; one that moves is
+        // a pan, and then it mustn't also pick.
+        property point from: Qt.point(0, 0)
+        property real fromLat: 0
+        property real fromLon: 0
+        property bool dragging: false
+
+        onPressed: mouse => {
+            from = Qt.point(mouse.x, mouse.y);
+            fromLat = bay.latAt(mouse.y);
+            fromLon = bay.lonAt(mouse.x);
+            dragging = false;
         }
+        onPositionChanged: mouse => {
+            if (!pressed) {
+                bay.highlight = bay.nearest(mouse.x, mouse.y);
+                return;
+            }
+            if (!dragging && Math.hypot(mouse.x - from.x, mouse.y - from.y) < 4) return;
+            dragging = true;
+            if (!bay.zoomed) return;
+            // Put the place the press started on back under the pointer.
+            bay.placed = true;
+            bay.centerLon = fromLon - (mouse.x - bay.width / 2) / (bay.shrink * bay.scale * bay.zoom);
+            bay.centerLat = fromLat + (mouse.y - bay.height / 2) / (bay.scale * bay.zoom);
+            bay.settle();
+        }
+        onReleased: {
+            if (!dragging && bay.highlight) bay.picked(bay.highlight);
+        }
+        onExited: bay.highlight = ""
+        onWheel: wheel => {
+            const steps = wheel.angleDelta.y / 120;
+            if (!steps) return;
+            bay.zoomAt(Math.pow(1.25, steps), wheel.x, wheel.y);
+        }
+        onDoubleClicked: bay.home()
+        cursorShape: bay.zoomed ? (pressed && dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor)
+                                : Qt.ArrowCursor
     }
 
     // The place under the pointer, within 24 pixels.
