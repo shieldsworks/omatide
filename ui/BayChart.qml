@@ -1,11 +1,15 @@
 import QtQuick
+import "coast.js" as Coast
 
 // The stream everywhere in San Francisco Bay at one moment.
 //
 // This is the old tidal current chart, drawn from NOAA's own survey: an
 // arrow at each of the bay's narrows, pointing the way the stream sets
-// and as long as it is strong. The bay's shape comes out of where the
-// stations are, because the stations are in the channels.
+// and as long as it is strong, over the shore of the bay itself.
+//
+// The shore is a schematic and not a chart: simplified to about ninety
+// meters, with no soundings and no marks. omahelm is the thing you
+// navigate by; this is the thing you plan on.
 //
 // What it is for is the thing a list of numbers can't show — that the
 // Gate can be flooding while Carquinez still ebbs, and that Raccoon
@@ -33,9 +37,14 @@ Item {
         for (let i = 0; i < arrows.length; i++) most = Math.max(most, arrows[i].knots);
         return most;
     }
+    // The bay, from the bar outside the Gate to the head of the south
+    // bay and up to Suisun. Fixed, not taken from the arrows: framing on
+    // the arrows cut the Gate off at the western-most one, and made the
+    // whole map shift about as stations came and went with the tide.
+    readonly property var frame: ({s: 37.45, n: 38.12, w: -122.58, e: -122.02})
+    // Wider still if a place ever falls outside it.
     readonly property var bounds: {
-        if (!arrows.length) return null;
-        let s = 90, n = -90, w = 180, e = -180;
+        let s = frame.s, n = frame.n, w = frame.w, e = frame.e;
         for (let i = 0; i < arrows.length; i++) {
             s = Math.min(s, arrows[i].lat);
             n = Math.max(n, arrows[i].lat);
@@ -86,6 +95,7 @@ Item {
                 g.fillText("waiting for the bay…", 12, height / 2);
                 return;
             }
+            bay.drawCoast(g);
             g.font = bay.textSize + "px monospace";
             // The bay's narrows crowd together off Angel Island, so the
             // arrows all go down first and the names afterwards, and a
@@ -107,14 +117,40 @@ Item {
     // Rectangles a name has already been written into, this repaint.
     property var taken: []
 
+    // The bay's shore, behind everything. Faint on purpose: it is there
+    // to say which water an arrow is in, not to be read itself.
+    function drawCoast(g) {
+        if (!bounds) return;
+        g.strokeStyle = ink;
+        g.globalAlpha = 0.38;
+        g.lineWidth = 1;
+        g.lineJoin = "round";
+        g.lineCap = "round";
+        const lines = Coast.LINES;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            g.beginPath();
+            // Each line is longitude, latitude, longitude, latitude...
+            for (let j = 0; j + 1 < line.length; j += 2) {
+                const x = xOf(line[j]), y = yOf(line[j + 1]);
+                if (j === 0) g.moveTo(x, y);
+                else g.lineTo(x, y);
+            }
+            g.stroke();
+        }
+        g.globalAlpha = 1;
+    }
+
     function draw(g, a) {
         const x = xOf(a.lon), y = yOf(a.lat);
         const flood = a.way === "flood";
         const slack = a.way === "slack" || a.knots < 0.05;
         const on = highlight === a.station;
-        // Longest arrow is 34 px; the square root keeps a weak stream
-        // visible without letting a strong one swamp the chart.
-        const length = 8 + 26 * Math.sqrt(Math.min(1, a.knots / fastest));
+        // Longest arrow is 27 px; the square root keeps a weak stream
+        // visible without letting a strong one swamp the chart. Shorter
+        // than it could be, because the bay's narrows crowd together off
+        // Angel Island and long arrows there tangle into a thicket.
+        const length = 7 + 20 * Math.sqrt(Math.min(1, a.knots / fastest));
         g.strokeStyle = slack ? ink : (flood ? accent : warn);
         g.fillStyle = g.strokeStyle;
         g.globalAlpha = on ? 1 : 0.85;
