@@ -305,7 +305,7 @@ fn nearest_key(
     kind: Kind,
 ) -> Result<String, String> {
     catalog
-        .nearest(at.0, at.1, kind)
+        .nearest(at.0, at.1, kind, settings().depth)
         .map(|(s, _)| s.key())
         .ok_or_else(|| format!("no {} station in the catalog", kind.name()))
 }
