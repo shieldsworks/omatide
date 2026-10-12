@@ -17,8 +17,12 @@ QtObject {
     readonly property int version: 1
     readonly property string runtime: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omatide/"
     readonly property string path: runtime + "tide.sock"
-    // The checkout or plugin directory: this file is <repo>/ui/Tide.qml.
-    readonly property string repo: decodeURIComponent(String(Qt.resolvedUrl("..")).replace(/^file:\/\//, "")).replace(/\/$/, "")
+    function parentOf(path) {
+        return String(path).replace(/\/[^/]+$/, "");
+    }
+    // `quickshell -p` makes ui/ the config root, so Qt.resolvedUrl("..") is qrc:/qs-blackhole.
+    readonly property string uiDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "")).replace(/\/+$/, "")
+    readonly property string repo: parentOf(uiDir)
     readonly property string binary: Quickshell.env("OMATIDE_BIN") || repo + "/target/release/omatide"
     readonly property string log: runtime + "engine.log"
 

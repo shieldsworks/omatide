@@ -1,6 +1,4 @@
 // Loads a QML file the way `quickshell -p` does (quickshell 0.3.2).
-// The config root is the directory of that file, unless one is passed.
-// The document URL is qs:@/qs/<path under the root>.
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
