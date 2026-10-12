@@ -43,3 +43,8 @@ jobs:
         run: mise test
       - name: Release build
         run: cargo build --release --locked
+      - name: Engine path
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pkg-config qt6-base-dev qt6-declarative-dev libgl1-mesa-dev qml6-module-qtquick qml6-module-qtqml qml6-module-qtqml-workerscript qml6-module-qtqml-models
+          ./scripts/verify.sh

@@ -62,6 +62,12 @@ Item {
         if (!Tide.here) return "";
         return Tide.here.at === "boat" ? "the boat" : "home";
     }
+    readonly property string engineStatus: {
+        if (Tide.incompatible) return "omatide speaks another protocol version";
+        if (Tide.connected) return "";
+        if (!Tide.waited) return "Starting omatide…";
+        return Tide.lastLog || "omatide isn't running";
+    }
 
     // The curves on show, fetched from the engine and refetched when the
     // station changes or the day rolls over.
@@ -150,7 +156,8 @@ Item {
         function hover(x: real, y: real): void { map.highlight = map.nearest(x, y); }
         function status(): string {
             return JSON.stringify({
-                engine: Tide.connected, stations: Tide.state ? Tide.state.stations : null,
+                engine: Tide.connected, log: Tide.lastLog, binary: Tide.binary,
+                stations: Tide.state ? Tide.state.stations : null,
                 here: Tide.here, tide: app.water ? app.water.station : "",
                 heightM: app.water ? app.water.heightM : null,
                 current: app.stream ? app.stream.station : "",
@@ -223,9 +230,7 @@ Item {
                 Line {
                     width: head.width - 240
                     text: {
-                        if (Tide.incompatible) return "omatide speaks another protocol version";
-                        if (!Tide.connected) return Tide.waited
-                            ? (Tide.lastLog || "omatide isn't running") : "Starting omatide…";
+                        if (!Tide.connected || Tide.incompatible) return app.engineStatus;
                         if (!Tide.hasCatalog) return "No stations yet — run `omatide fetch`";
                         if (!app.water) return "No tide station within reach";
                         return "The tide at " + app.where + ", from " + app.water.name
@@ -428,6 +433,29 @@ Item {
                         if (pressed) app.scrubTo(mouse.x, scrub.width);
                     }
                     onReleased: app.scrubbing = Math.abs(app.at - app.now) > 60000
+                }
+            }
+
+            Rectangle {
+                visible: !Tide.connected && (Tide.waited || Tide.incompatible)
+                z: 2
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 48, engineNoticeText.implicitWidth + 36)
+                height: engineNoticeText.implicitHeight + 28
+                color: app.theme.background
+                border.width: 1
+                border.color: app.theme.foreground
+                radius: 3
+                Text {
+                    id: engineNoticeText
+                    anchors.centerIn: parent
+                    width: Math.min(implicitWidth, surface.width - 84)
+                    text: app.engineStatus
+                    color: app.theme.foreground
+                    font.family: "monospace"
+                    font.pixelSize: app.theme.baseSize
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
                 }
             }
         }
