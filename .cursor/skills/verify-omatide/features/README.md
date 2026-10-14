@@ -21,16 +21,15 @@ The repository root is `git rev-parse --show-toplevel`. This proof used
 
 - Start every recipe from the baseline unless its preconditions say otherwise.
 - Commands are literal. Keep quoted names and flags unchanged.
-- Every `omatide` command below means these two lines. `$run` is already set.
+- Every `omatide` command below means `omatide_env` from `../SKILL.md`.
+  `$run` and `$bin` are already set. A no-catalog command is
+  `omatide_env_empty`. The empty directory's `OMATIDE_DATA_DIR` is the
+  last assignment in that file. An export before `env` loses to whichever
+  file `env` reads.
 
 ```sh
-: "${run:?}"
-env $(cat "$run/env") "$bin"
+omatide_env tide
 ```
-
-  A no-catalog command uses `$run/env.empty` in place of `$run/env`. The
-  empty directory's `OMATIDE_DATA_DIR` is the last assignment in that
-  file. An export before `env` loses to whichever file `env` reads.
 - Prefer stable handles. Station ids, the phrases in the terminal, and
   message types from `docs/protocol.md` are the handles. Heights, speeds,
   and timestamps move. Match the tokens a recipe names, not the whole line.

@@ -27,60 +27,217 @@ Preconditions.
 - Stop any engine already listening on `$run/omatide/tide.sock` before **Start the engine**.
 - Quickshell and Hyprland are required for the painted window. This VM has neither. `window-launch`, the keys, the IPC call, and the painted notice were not driven. The other steps are the substitutes that were run. They are not a screenshot.
 
-- **Open the window.** Run `./run.sh` inside this run's environment. Resolve `WAYLAND_DISPLAY` to an absolute path first. Then apply `$run/env`, and pass that absolute path after the file so it wins. Quickshell keeps the compositor socket. The engine binds `$run/omatide/tide.sock`.
+- **Open the window.** Run `./run.sh` inside this run's environment. An empty `WAYLAND_DISPLAY` is unreachable. A relative name is the socket under the current `XDG_RUNTIME_DIR`. An absolute path is that path. A real socket is passed through as an absolute path, after `$run/env`, so the engine still uses `$run`. A missing socket is written to `wayland.txt`. `./run.sh` is not given a stand-in path. The probe still requires `XDG_RUNTIME_DIR` to be `$run`. `timeout 3` stops the fence from waiting on Quickshell.
 
 ```sh
-set -euo pipefail
-: "${run:?}"
-case ${WAYLAND_DISPLAY:-} in
-  /*) wayland_abs=$WAYLAND_DISPLAY ;;
-  "") wayland_abs=/omatide-verify-no-wayland ;;
-  *) wayland_abs=${XDG_RUNTIME_DIR:?}/$WAYLAND_DISPLAY ;;
-esac
-case $wayland_abs in
-  /*) ;;
-  *) printf '%s\n' 'WAYLAND_DISPLAY is not absolute' >&2; exit 1 ;;
-esac
-probe=$(env $(cat "$run/env") WAYLAND_DISPLAY="$wayland_abs" \
-  sh -c 'printf %s "$XDG_RUNTIME_DIR"')
-test "$probe" = "$run"
-mkdir -p "$run/artifacts/verify/window"
-set +e
-env $(cat "$run/env") WAYLAND_DISPLAY="$wayland_abs" ./run.sh \
-  >"$run/artifacts/verify/window/run.out" \
-  2>"$run/artifacts/verify/window/run.err"
-run_status=$?
-set -e
-printf '%s\n' "$run_status" >"$run/artifacts/verify/window/run.status"
-if ! command -v quickshell >/dev/null 2>&1; then
-  test "$run_status" -eq 127
-fi
+omatide_window_open() {
+  local _opts _status display runtime socket probe run_status
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  wayland_abs=
+  test -n "${run-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/window" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    display=${WAYLAND_DISPLAY-}
+    runtime=${XDG_RUNTIME_DIR-}
+    socket=
+    case "$display" in
+      "")
+        printf '%s\n' 'WAYLAND_DISPLAY is empty' 'not run: ./run.sh' \
+          > "$run/artifacts/verify/window/wayland.txt" || _status=$?
+        ;;
+      /*)
+        socket=$display
+        ;;
+      *)
+        case "$runtime" in
+          /*) socket=$runtime/$display ;;
+          *)
+            printf '%s\n' 'XDG_RUNTIME_DIR is not absolute' 'not run: ./run.sh' \
+              > "$run/artifacts/verify/window/wayland.txt" || _status=$?
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  if test "$_status" -eq 0 && test -n "${socket-}"; then
+    if test -S "$socket"; then
+      wayland_abs=$socket
+      printf '%s\n' "$wayland_abs" > "$run/artifacts/verify/window/wayland.txt" || _status=$?
+    else
+      printf '%s\n' "wayland socket is not reachable: $socket" 'not run: ./run.sh' \
+        > "$run/artifacts/verify/window/wayland.txt" || _status=$?
+    fi
+  fi
+  if test "$_status" -eq 0; then
+    probe=$(env $(cat "$run/env") sh -c 'printf %s "$XDG_RUNTIME_DIR"') || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    test "$probe" = "$run" || _status=$?
+  fi
+  if test "$_status" -eq 0 && test -n "${wayland_abs-}"; then
+    timeout 3 env $(cat "$run/env") WAYLAND_DISPLAY="$wayland_abs" ./run.sh \
+      >"$run/artifacts/verify/window/run.out" \
+      2>"$run/artifacts/verify/window/run.err"
+    run_status=$?
+    printf '%s\n' "$run_status" > "$run/artifacts/verify/window/run.status" || _status=$?
+    if test "$_status" -eq 0 && ! command -v quickshell >/dev/null 2>&1; then
+      test "$run_status" -eq 127 || _status=$?
+    fi
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_window_open
 ```
 
-  Observed on 2026-10-14, exit 127 and stderr `./run.sh: line 7: exec: quickshell: not found`. The painted window was not driven. The probe still required `XDG_RUNTIME_DIR` to be `$run`.
-- **Start the engine.** The script in `ui/Tide.qml` is `mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"`. Set `bin=$(realpath ./target/release/omatide)`. Run `env $(cat "$run/env") env -C "$run/home" sh -c "$script" omatide-start "$run/omatide/" "$bin" "$run/window-engine.log"` and record that pid in `$run/window.pid`. Observed the process command `/workspace/target/release/omatide run`. The log was empty. Then `timeout 2 omatide watch` with the baseline env printed `{"tide":"0.1.0","type":"hello","v":1}` and a `state` with `"keel":"connecting"`, `"at":"home"`, and `"station":"9414290"`. Exit 124. The socket was `$run/omatide/tide.sock`.
+  Observed on 2026-10-14, with Quickshell absent, `./run.sh` exited 127 and stderr was `./run.sh: line 7: exec: quickshell: not found`. The painted window was not driven. An empty `WAYLAND_DISPLAY` does not run that command. The probe still required `XDG_RUNTIME_DIR` to be `$run`.
+- **Start the engine.** The script in `ui/Tide.qml` is `mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"`. The fence starts that script in the background, checks the pid and `$run/omatide/tide.sock`, records a `timeout 2` watch, checks a second `omatide run` exits 1, then stops the pid. It does not wait in the foreground.
+
+```sh
+omatide_window_start() {
+  local _opts _status script i watch_status second_status pid
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  script='mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"'
+  test -n "${run-}" && test -n "${bin-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/window" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    env $(cat "$run/env") env -C "$run/home" sh -c "$script" omatide-start \
+      "$run/omatide/" "$bin" "$run/window-engine.log" \
+      >"$run/artifacts/verify/window/start.out" \
+      2>"$run/artifacts/verify/window/start.err" &
+    pid=$!
+    OMATIDE_FENCE_PIDS=$pid
+    echo "$pid" > "$run/window.pid"
+    i=0
+    while test "$i" -lt 25; do
+      if test -S "$run/omatide/tide.sock" && kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.2 || true
+      i=$((i + 1))
+    done
+    if ! test -S "$run/omatide/tide.sock" || ! kill -0 "$pid" 2>/dev/null; then
+      _status=1
+    fi
+  fi
+  if test "$_status" -eq 0; then
+    ps -o args= -p "$pid" > "$run/artifacts/verify/window/start.cmd" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    timeout 2 env $(cat "$run/env") "$bin" watch --socket "$run/omatide/tide.sock" \
+      >"$run/artifacts/verify/window/watch.out" \
+      2>"$run/artifacts/verify/window/watch.err"
+    watch_status=$?
+    printf '%s\n' "$watch_status" > "$run/artifacts/verify/window/watch.status"
+    test "$watch_status" -eq 124 || _status=$watch_status
+  fi
+  if test "$_status" -eq 0; then
+    grep -F '{"tide":"0.1.0","type":"hello","v":1}' \
+      "$run/artifacts/verify/window/watch.out" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    grep -F '"keel":"connecting"' "$run/artifacts/verify/window/watch.out" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    env $(cat "$run/env") "$bin" run \
+      >"$run/artifacts/verify/window/second.out" \
+      2>"$run/artifacts/verify/window/second.err"
+    second_status=$?
+    printf '%s\n' "$second_status" > "$run/artifacts/verify/window/second.status"
+    test "$second_status" -eq 1 || _status=1
+  fi
+  if test "$_status" -eq 0; then
+    grep -F "already running on $run/omatide/tide.sock" \
+      "$run/artifacts/verify/window/second.err" || _status=$?
+  fi
+  if test -n "${pid-}"; then
+    omatide_kill "$pid"
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_window_start
+```
+
+  Observed on 2026-10-14 the process command was `/workspace/target/release/omatide run`. The log was empty. The watch printed `{"tide":"0.1.0","type":"hello","v":1}` and a `state` with `"keel":"connecting"`, `"at":"home"`, and `"station":"9414290"`. Exit 124. The socket was `$run/omatide/tide.sock`. A second `omatide run` exited 1 with `omatide: omatide is already running on $run/omatide/tide.sock`.
 - **Path from this file.** Run `./scripts/verify.sh` and require the pass line. Exit 0 with `Skipped.` is a failed step.
 
 ```sh
-set -euo pipefail
-: "${run:?}"
-mkdir -p "$run/artifacts/verify/window"
-./scripts/verify.sh >"$run/artifacts/verify/window/verify.out" 2>&1
-grep -F 'All engine-path checks passed.' "$run/artifacts/verify/window/verify.out"
-if grep -F 'Skipped.' "$run/artifacts/verify/window/verify.out"; then
-  printf '%s\n' 'scripts/verify.sh skipped' >&2
-  exit 1
-fi
+omatide_window_path() {
+  local _opts _status
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  test -n "${run-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/window" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    ./scripts/verify.sh >"$run/artifacts/verify/window/verify.out" 2>&1 || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    grep -F 'All engine-path checks passed.' \
+      "$run/artifacts/verify/window/verify.out" || _status=$?
+  fi
+  if test "$_status" -eq 0 && grep -F 'Skipped.' "$run/artifacts/verify/window/verify.out"; then
+    printf '%s\n' 'scripts/verify.sh skipped' >&2
+    _status=1
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_window_path
 ```
 
   Observed on 2026-10-14, after the Qt6 QML packages in `.github/workflows/ci.yml` were installed, both cases printed `ok`, then `window surfaces Tide.lastLog`, then `All engine-path checks passed.` The `repo` and `started` paths were under the temp checkout and under `plugins/org.omahoy.tide`. Exit 0.
 - **Missing engine.** Run the same start script with `PATH=/usr/bin:/bin` and a binary path that is not executable. Observed exit 127 and log `omatide-start: 1: exec: omatide: not found`. That line is what the window stores as `Tide.lastLog`. After six failed connects the notice text is that line. The rectangle that draws it was not driven.
-- **One default socket.** Run `omatide run` again with the baseline env while the start-script engine is still up. Observed exit 1 and stderr `omatide: omatide is already running on $run/omatide/tide.sock`.
+
+```sh
+omatide_window_missing() {
+  local _opts _status script miss
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  script='mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"'
+  test -n "${run-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/window" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    env $(cat "$run/env") env -C "$run/home" env PATH=/usr/bin:/bin \
+      sh -c "$script" omatide-start "$run/omatide/" "$run/not-a-binary" \
+      "$run/artifacts/verify/window/missing.log"
+    miss=$?
+    printf '%s\n' "$miss" > "$run/artifacts/verify/window/missing.status"
+    test "$miss" -eq 127 || _status=1
+  fi
+  if test "$_status" -eq 0; then
+    grep -F 'exec: omatide: not found' \
+      "$run/artifacts/verify/window/missing.log" || _status=$?
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_window_missing
+```
+- **One default socket.** `omatide_window_start` runs a second `omatide run` while its engine is still up, then stops that pid. Observed exit 1 and stderr `omatide: omatide is already running on $run/omatide/tide.sock`.
 - **Proof.** Save the `./run.sh` stderr, the start-script pid command, the watch transcript, the missing-engine log, and the `scripts/verify.sh` transcript under `$run/artifacts/verify/window/`. Do not label them as a window screenshot.
 
 ## Gotchas
 
-- `scripts/verify.sh` prints `Qt6 QML dev packages not installed. Skipped.` and exits 0 when `pkg-config` cannot see Qt6. The path fence greps for `All engine-path checks passed.` and exits 1 when the transcript contains `Skipped.` This VM installed the CI packages so the probe could load. A Hyprland machine with Quickshell paints the window without those packages. The path fence still needs the packages, because it compiles the probe.
+- `scripts/verify.sh` prints `Qt6 QML dev packages not installed. Skipped.` and exits 0 when `pkg-config` cannot see Qt6. The path fence greps for `All engine-path checks passed.` and returns 1 when the transcript contains `Skipped.` This VM installed the CI packages so the probe could load. A Hyprland machine with Quickshell paints the window without those packages. The path fence still needs the packages, because it compiles the probe.
 - The start script does not pass `--socket` or `--no-keel`. It inherits `XDG_RUNTIME_DIR` and execs `omatide run`. With this run's env, that socket is `$run/omatide/tide.sock`. `keel` stays `connecting` while omakeel's socket is absent. `engine.md` says why that transient is valid.
 - The binary the script runs is `OMATIDE_BIN` when that is set, otherwise the release binary next to the QML file. `./run.sh` does not export `OMATIDE_BIN`. The path check is `scripts/verify.sh`.
 - Kill the pid you recorded. A second `omatide run` on `$run/omatide/tide.sock` exits 1 and is not the one to kill.

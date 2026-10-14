@@ -35,19 +35,35 @@ PCT0286-1 — Fort Point, 0.5 nmi. east of
 - **No catalog.** Use `$run/env.empty`. Exit 1. The last stderr line keeps the backticks.
 
 ```sh
-set -euo pipefail
-: "${run:?}"
-mkdir -p "$run/artifacts/verify/current"
-set +e
-env $(cat "$run/env.empty") "$bin" current \
-  >"$run/artifacts/verify/current/missing.out" \
-  2>"$run/artifacts/verify/current/missing.err"
-status=$?
-set -e
-test "$status" -eq 1
-last=$(tail -n 1 "$run/artifacts/verify/current/missing.err")
-test "$last" = 'Run `omatide fetch` first.'
-test -f "$run/data/omatide/stations.json"
+omatide_current_missing() {
+  local _opts _status last
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  test -n "${run-}" && test -n "${bin-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/current" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    env $(cat "$run/env.empty") "$bin" current \
+      >"$run/artifacts/verify/current/missing.out" \
+      2>"$run/artifacts/verify/current/missing.err"
+    test "$?" -eq 1 || _status=1
+  fi
+  if test "$_status" -eq 0; then
+    last=$(tail -n 1 "$run/artifacts/verify/current/missing.err") || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    test "$last" = 'Run `omatide fetch` first.' || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    test -f "$run/data/omatide/stations.json" || _status=$?
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_current_missing
 ```
 - **Proof.** Save stdout, stderr, and the exit code under `$run/artifacts/verify/current/`. The second look is `"id": "PCT0286"` in `stations.json`.
 

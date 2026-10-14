@@ -44,21 +44,39 @@ Preconditions.
 - **No catalog.** Use `$run/env.empty` so `OMATIDE_DATA_DIR` is `$run/empty` after the rest of the run's env. Exit 1. The last stderr line keeps the backticks.
 
 ```sh
-set -euo pipefail
-: "${run:?}"
-mkdir -p "$run/artifacts/verify/tide"
-set +e
-env $(cat "$run/env.empty") "$bin" tide 9414290 \
-  >"$run/artifacts/verify/tide/missing.out" \
-  2>"$run/artifacts/verify/tide/missing.err"
-status=$?
-set -e
-test "$status" -eq 1
-last=$(tail -n 1 "$run/artifacts/verify/tide/missing.err")
-test "$last" = 'Run `omatide fetch` first.'
-grep -F 'No such file or directory (os error 2)' \
-  "$run/artifacts/verify/tide/missing.err"
-test -f "$run/data/omatide/stations.json"
+omatide_tide_missing() {
+  local _opts _status last
+  _opts=$(set +o)
+  set -euo pipefail
+  set +e
+  _status=0
+  test -n "${run-}" && test -n "${bin-}" || _status=1
+  if test "$_status" -eq 0; then
+    mkdir -p "$run/artifacts/verify/tide" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    env $(cat "$run/env.empty") "$bin" tide 9414290 \
+      >"$run/artifacts/verify/tide/missing.out" \
+      2>"$run/artifacts/verify/tide/missing.err"
+    test "$?" -eq 1 || _status=1
+  fi
+  if test "$_status" -eq 0; then
+    last=$(tail -n 1 "$run/artifacts/verify/tide/missing.err") || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    test "$last" = 'Run `omatide fetch` first.' || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    grep -F 'No such file or directory (os error 2)' \
+      "$run/artifacts/verify/tide/missing.err" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    test -f "$run/data/omatide/stations.json" || _status=$?
+  fi
+  omatide_fence_finish "$_status" "$_opts"
+  return "$_status"
+}
+omatide_tide_missing
 ```
 
   Observed on 2026-10-14 the first stderr line ended with `No such file or directory (os error 2)`.
