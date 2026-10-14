@@ -21,22 +21,17 @@ The repository root is `git rev-parse --show-toplevel`. This proof used
 
 - Start every recipe from the baseline unless its preconditions say otherwise.
 - Commands are literal. Keep quoted names and flags unchanged.
-- Every `omatide` command below means `omatide_env` from `../SKILL.md`.
-  `$run` and `$bin` are already set. A no-catalog command is
-  `omatide_env_empty`. `omatide_env_ok` has to accept the env file before
-  the binary runs. The empty directory's `OMATIDE_DATA_DIR` is the
-  last assignment in that file. An export before `env` loses to whichever
-  file `env` reads.
+- The drive in `../drive.sh` runs every `omatide` command below. It passes
+  `$run/env` as an array. A no-catalog command uses `$run/env.empty`, whose
+  last assignment is `OMATIDE_DATA_DIR=$run/empty`. The binary does not run
+  unless that file stays under `$run`.
 
-```sh
-omatide_env tide
-```
 - Prefer stable handles. Station ids, the phrases in the terminal, and
   message types from `docs/protocol.md` are the handles. Heights, speeds,
   and timestamps move. Match the tokens a recipe names, not the whole line.
   `keel` may be `connecting` while omakeel has not answered. That value is
   in `engine.md`.
-- Cleanup copies proof into the per-run evidence directory and then
+- The drive's EXIT trap copies proof into the evidence directory and then
   deletes `$run`. Leave the evidence directory in place.
 
 ## Proof and skip reporting
