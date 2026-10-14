@@ -28,14 +28,15 @@ Preconditions.
 ```sh
 omatide_engine_start() {
   local _opts _status i pid
+  local -a _env
   omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_load _env "$run/env" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/engine" || _status=$?
   fi
   if test "$_status" -eq 0; then
-    env $(cat "$run/env") "$bin" run --socket "$run/tide.sock" --no-keel \
+    env "${_env[@]}" "$bin" run --socket "$run/tide.sock" --no-keel \
       >"$run/engine.log" 2>&1 &
     pid=$!
     omatide_fence_pid "$pid"
@@ -65,14 +66,15 @@ omatide_engine_start
 ```sh
 omatide_engine_empty() {
   local _opts _status i pid watch_status
+  local -a _env
   omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env.empty" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_load _env "$run/env.empty" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/engine" || _status=$?
   fi
   if test "$_status" -eq 0; then
-    env $(cat "$run/env.empty") "$bin" run --socket "$run/empty.sock" --no-keel \
+    env "${_env[@]}" "$bin" run --socket "$run/empty.sock" --no-keel \
       >"$run/empty.log" 2>&1 &
     pid=$!
     omatide_fence_pid "$pid"
@@ -90,7 +92,7 @@ omatide_engine_empty() {
     fi
   fi
   if test "$_status" -eq 0; then
-    timeout 2 env $(cat "$run/env.empty") "$bin" watch --socket "$run/empty.sock" \
+    timeout 2 env "${_env[@]}" "$bin" watch --socket "$run/empty.sock" \
       >"$run/artifacts/verify/engine/empty-watch.out" \
       2>"$run/artifacts/verify/engine/empty-watch.err"
     watch_status=$?

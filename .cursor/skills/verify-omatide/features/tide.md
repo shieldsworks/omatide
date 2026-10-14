@@ -48,12 +48,12 @@ omatide_tide_missing() {
   local _opts _status last
   omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env.empty" || _status=1
+  test -n "${run-}" && test -n "${bin-}" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/tide" || _status=$?
   fi
   if test "$_status" -eq 0; then
-    env $(cat "$run/env.empty") "$bin" tide 9414290 \
+    omatide_env_exec "$run/env.empty" "$bin" tide 9414290 \
       >"$run/artifacts/verify/tide/missing.out" \
       2>"$run/artifacts/verify/tide/missing.err"
     test "$?" -eq 1 || _status=1
