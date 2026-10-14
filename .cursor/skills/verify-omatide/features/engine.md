@@ -28,11 +28,9 @@ Preconditions.
 ```sh
 omatide_engine_start() {
   local _opts _status i pid
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/engine" || _status=$?
   fi
@@ -40,7 +38,7 @@ omatide_engine_start() {
     env $(cat "$run/env") "$bin" run --socket "$run/tide.sock" --no-keel \
       >"$run/engine.log" 2>&1 &
     pid=$!
-    OMATIDE_FENCE_PIDS=$pid
+    omatide_fence_pid "$pid"
     echo "$pid" > "$run/pid"
     i=0
     while test "$i" -lt 25; do
@@ -67,11 +65,9 @@ omatide_engine_start
 ```sh
 omatide_engine_empty() {
   local _opts _status i pid watch_status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env.empty" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/engine" || _status=$?
   fi
@@ -79,7 +75,7 @@ omatide_engine_empty() {
     env $(cat "$run/env.empty") "$bin" run --socket "$run/empty.sock" --no-keel \
       >"$run/empty.log" 2>&1 &
     pid=$!
-    OMATIDE_FENCE_PIDS=$pid
+    omatide_fence_pid "$pid"
     echo "$pid" > "$run/empty.pid"
     i=0
     while test "$i" -lt 25; do

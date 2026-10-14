@@ -23,7 +23,8 @@ The repository root is `git rev-parse --show-toplevel`. This proof used
 - Commands are literal. Keep quoted names and flags unchanged.
 - Every `omatide` command below means `omatide_env` from `../SKILL.md`.
   `$run` and `$bin` are already set. A no-catalog command is
-  `omatide_env_empty`. The empty directory's `OMATIDE_DATA_DIR` is the
+  `omatide_env_empty`. `omatide_env_ok` has to accept the env file before
+  the binary runs. The empty directory's `OMATIDE_DATA_DIR` is the
   last assignment in that file. An export before `env` loses to whichever
   file `env` reads.
 

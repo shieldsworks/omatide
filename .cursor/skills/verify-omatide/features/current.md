@@ -37,11 +37,9 @@ PCT0286-1 — Fort Point, 0.5 nmi. east of
 ```sh
 omatide_current_missing() {
   local _opts _status last
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env.empty" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/current" || _status=$?
   fi

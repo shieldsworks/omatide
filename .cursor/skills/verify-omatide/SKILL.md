@@ -23,28 +23,41 @@ Every run gets its own directory. Do not read or write
 `~/.local/share/omatide` or `~/.config/omatide`.
 
 Paste one fence at a time into the interactive shell you already have
-open. A fence is a function. It saves `set +o`, turns nounset and
-pipefail on for the body, and `omatide_fence_finish` restores those
-options before the function returns. The body turns errexit off. With
-errexit on, a failed command exits this interactive shell. The function
-returns the status. It does not call `exit`.
+open. A fence is a function. `omatide_fence_save` records `$-` in that
+shell, then captures `set +o`. A command substitution reports errexit as
+off, so the saved text is corrected from `$-` before the body runs. The
+body turns nounset and pipefail on, and turns errexit off. With errexit
+on, a failed command exits this interactive shell.
+`omatide_fence_finish` evals the saved options, so errexit, nounset, and
+pipefail come back as they were. The function returns the status. It does
+not call `exit`.
 
 `${run:?}` returns from the function before `omatide_fence_finish` runs,
-and the strict options stay on. The guard is `test -n "${run-}"` on the
-same `&&` list as the command that reads `$run`. When the guard fails,
-that command does not run.
+and the strict options stay on. Do not use it. `omatide_env_ok` is the
+guard. It requires `$run`, a readable non-empty env file, and one
+assignment each for `HOME`, `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`,
+`XDG_CONFIG_HOME`, `OMATIDE_DATA_DIR`, `OMATIDE_CONFIG`, and `TZ`. Each
+path is absolute and stays under `$run`. The `&&` list calls
+`omatide_env_ok` before `env $(cat ...)`. When the guard fails, the
+binary does not run, so it cannot fall through to
+`~/.local/share/omatide`.
 
-A fence that puts a process in the background appends its pid to
-`OMATIDE_FENCE_PIDS`. On a non-zero status, `omatide_fence_finish` kills
-those pids. Cleanup kills the pid files after that.
+A fence that puts a process in the background calls `omatide_fence_pid`,
+which appends the pid to `OMATIDE_FENCE_PIDS`. On a non-zero status,
+`omatide_fence_finish` kills every pid in that list. Cleanup kills the
+pid files after that, then unsets `run` and `bin`.
 
 Build with `mise exec` when `mise` is on `PATH`. Otherwise install Rust
 1.98.1 and build with `rustup run 1.98.1`. `mise.toml` names Rust `1.98`,
 and that channel is 1.98.1 (`48a229cea 2026-09-01`). Rust 1.98.0
 (`88d9e12ae 2026-08-18`) is a different compiler. Both arms require
 `rustc --version` to contain `1.98.1`. Delete `target/release/omatide`
-before the build. The new binary's mtime has to be at least the build
-start, which ties it to this build.
+before the build. Cargo republishes that path as a hardlink of
+`target/release/deps/omatide-*`, and the hardlink keeps the old mtime.
+The release binary has to be that deps file (same inode or the same
+GNU build id) or newer than the build start, and `omatide --version`
+has to print `omatide 0.1.0`. A failed launch unsets `run` when that
+path is not a directory.
 
 `cargo` on `PATH` is the wrong compiler on a machine whose default
 `rustc` is older. This cloud VM had no `mise` binary, and its default
@@ -80,14 +93,110 @@ omatide_fence_finish() {
   eval "$opts"
 }
 
-omatide_launch() {
-  local _opts _status compiler pin mtime
-  pin=1.98.1
-  _opts=$(set +o)
+omatide_fence_save() {
+  local -n _slot=$1
+  local _dash=$- _raw
+  _raw=$(set +o)
+  case $_dash in
+    *e*) _raw=${_raw/set +o errexit/set -o errexit} ;;
+  esac
+  _slot=$_raw
   set -euo pipefail
   set +e
+}
+
+omatide_fence_pid() {
+  local pid="$1"
+  test -n "${pid-}" || return 1
+  case ${OMATIDE_FENCE_PIDS-} in
+    "") OMATIDE_FENCE_PIDS=$pid ;;
+    *) OMATIDE_FENCE_PIDS="$OMATIDE_FENCE_PIDS $pid" ;;
+  esac
+}
+
+omatide_env_ok() {
+  local file="$1" key line val n
+  test -n "${run-}" || return 1
+  test -n "${file-}" || return 1
+  test -r "$file" || return 1
+  test -s "$file" || return 1
+  while IFS= read -r line || test -n "$line"; do
+    case "$line" in
+      HOME=*|XDG_RUNTIME_DIR=*|XDG_DATA_HOME=*|XDG_CONFIG_HOME=*|OMATIDE_DATA_DIR=*|OMATIDE_CONFIG=*|TZ=*) ;;
+      *) return 1 ;;
+    esac
+  done < "$file"
+  for key in HOME XDG_RUNTIME_DIR XDG_DATA_HOME XDG_CONFIG_HOME OMATIDE_DATA_DIR OMATIDE_CONFIG TZ; do
+    n=$(grep -c "^${key}=" "$file") || n=0
+    test "$n" -eq 1 || return 1
+    val=$(sed -n "s/^${key}=//p" "$file") || return 1
+    test -n "$val" || return 1
+    case "$val" in
+      *[[:space:]]*) return 1 ;;
+    esac
+    case "$key" in
+      TZ) ;;
+      *)
+        case "$val" in
+          "$run"|"$run"/*) ;;
+          *) return 1 ;;
+        esac
+        case "$val" in
+          /*) ;;
+          *) return 1 ;;
+        esac
+        case "$val" in
+          *..*) return 1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+omatide_binary_tied() {
+  local rel="$1" start="$2" rel_id dep dep_id rel_build dep_build mtime
+  test -n "${rel-}" || return 1
+  test -x "$rel" || return 1
+  rel_id=$(stat -c '%d:%i' "$rel") || return 1
+  mtime=$(stat -c %Y "$rel") || return 1
+  rel_build=$(readelf -n "$rel" 2>/dev/null | awk '/Build ID/ {print $3; exit}') || true
+  for dep in target/release/deps/omatide-*; do
+    case "$dep" in
+      *.d) continue ;;
+    esac
+    test -x "$dep" || continue
+    dep_id=$(stat -c '%d:%i' "$dep") || continue
+    if test "$dep_id" = "$rel_id"; then
+      printf '%s\n' "inode $rel_id"
+      return 0
+    fi
+    if test -n "${rel_build-}"; then
+      dep_build=$(readelf -n "$dep" 2>/dev/null | awk '/Build ID/ {print $3; exit}') || true
+      if test -n "${dep_build-}" && test "$dep_build" = "$rel_build"; then
+        printf '%s\n' "build-id $rel_build"
+        return 0
+      fi
+    fi
+  done
+  if test -n "${start-}" && test "$mtime" -ge "$start"; then
+    printf '%s\n' "mtime $mtime"
+    return 0
+  fi
+  printf '%s\n' "release binary is not tied to target/release/deps" >&2
+  return 1
+}
+
+omatide_launch() {
+  local _opts _status compiler pin fresh ver
+  pin=1.98.1
+  omatide_fence_save _opts
   _status=0
   compiler=
+  fresh=
+  if test -n "${run-}" && ! test -d "$run"; then
+    unset run
+  fi
   cd "$(git rev-parse --show-toplevel)" || _status=$?
   if test "$_status" -eq 0; then
     rm -f target/release/omatide || _status=$?
@@ -124,10 +233,13 @@ omatide_launch() {
     bin=$(realpath ./target/release/omatide) || _status=$?
   fi
   if test "$_status" -eq 0; then
-    mtime=$(stat -c %Y "$bin") || _status=$?
+    ver=$(env -i "$bin" --version) || _status=$?
   fi
   if test "$_status" -eq 0; then
-    test "$mtime" -ge "$build_start" || _status=$?
+    test "$ver" = "omatide 0.1.0" || _status=1
+  fi
+  if test "$_status" -eq 0; then
+    fresh=$(omatide_binary_tied "$bin" "$build_start") || _status=$?
   fi
   if test "$_status" -eq 0; then
     run=$(mktemp -d /tmp/omatide-verify.XXXXXX) || _status=$?
@@ -140,6 +252,9 @@ omatide_launch() {
   fi
   if test "$_status" -eq 0; then
     stat -c %Y "$bin" > "$run/artifacts/verify/launch/bin_mtime" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    printf '%s\n' "$fresh" > "$run/artifacts/verify/launch/fresh.txt" || _status=$?
   fi
   if test "$_status" -eq 0; then
     printf '%s\n' "$compiler" > "$run/artifacts/verify/launch/rustc.txt" || _status=$?
@@ -163,7 +278,8 @@ EOF
     printf 'OMATIDE_DATA_DIR=%s\n' "$run/empty" >> "$run/env.empty" || _status=$?
   fi
   if test "$_status" -eq 0; then
-    test -n "${run-}" && test -n "${bin-}" && env $(cat "$run/env") "$bin" fetch --region 37.80,-122.48,37.82,-122.45 \
+    test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env" \
+      && env $(cat "$run/env") "$bin" fetch --region 37.80,-122.48,37.82,-122.45 \
       >"$run/fetch.log" 2>&1 || _status=$?
   fi
   if test "$_status" -eq 0; then
@@ -179,6 +295,9 @@ EOF
     grep -F "saved to $run/data/omatide/stations.json" "$run/fetch.log" || _status=$?
   fi
   omatide_fence_finish "$_status" "$_opts"
+  if test "$_status" -ne 0 && test -n "${run-}" && ! test -d "$run"; then
+    unset run
+  fi
   return "$_status"
 }
 omatide_launch
@@ -206,13 +325,11 @@ The engine, for the socket features, is a second step. See
 ```sh
 omatide_doctor() {
   local _opts _status data env_lines
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   test -n "${run-}" && test -n "${bin-}" && realpath ./target/release/omatide || _status=$?
   if test "$_status" -eq 0; then
-    test -n "${run-}" && env $(cat "$run/env") "$bin" --version || _status=$?
+    test -n "${run-}" && omatide_env_ok "$run/env" && env $(cat "$run/env") "$bin" --version || _status=$?
   fi
   if test "$_status" -eq 0; then
     data=$(sed -n 's/^OMATIDE_DATA_DIR=//p' "$run/env") || _status=$?
@@ -266,22 +383,20 @@ Cleanup calls `omatide_stop`.
 ```sh
 omatide_env() {
   local _opts _status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && env $(cat "$run/env") "$bin" "$@" || _status=$?
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env" \
+    && env $(cat "$run/env") "$bin" "$@" || _status=$?
   omatide_fence_finish "$_status" "$_opts"
   return "$_status"
 }
 
 omatide_env_empty() {
   local _opts _status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && env $(cat "$run/env.empty") "$bin" "$@" || _status=$?
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env.empty" \
+    && env $(cat "$run/env.empty") "$bin" "$@" || _status=$?
   omatide_fence_finish "$_status" "$_opts"
   return "$_status"
 }
@@ -305,11 +420,10 @@ omatide_watch() {
   socket=${1-}
   out=${2-}
   err=${3-}
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
-  test -n "${run-}" && test -n "${bin-}" && test -n "${socket-}" && test -n "${out-}" && test -n "${err-}" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && test -n "${socket-}" && test -n "${out-}" && test -n "${err-}" \
+    && omatide_env_ok "$run/env" || _status=1
   if test "$_status" -eq 0; then
     timeout 2 env $(cat "$run/env") "$bin" watch --socket "$socket" >"$out" 2>"$err"
     watch_status=$?
@@ -373,8 +487,11 @@ in `.github/workflows/ci.yml` were installed, this VM printed that line.
 ## Evidence
 
 Write under `$run/artifacts/verify/<feature>/`. Cleanup copies that tree
-to `${EVIDENCE_DIR:-/tmp/omatide-evidence}/$(basename "$run")` and then
-deletes `$run`. Each run has its own evidence directory.
+to `${EVIDENCE_DIR:-/tmp/omatide-evidence}/$(basename "$run")`. It also
+copies `$run/fetch.log`, `$run/data/omatide/stations.json`,
+`$run/engine.log`, and `$run/window-engine.log` into that evidence
+directory when those files exist. Then it deletes `$run` and unsets
+`run` and `bin`. Each run has its own evidence directory.
 
 - Save the command, stdout, stderr, and the exit code.
 - For the socket, save the lines. The second look is another `omatide
@@ -390,23 +507,43 @@ deletes `$run`. Each run has its own evidence directory.
 
 Call `omatide_cleanup` after the feature files. It uses `omatide_stop`
 from Helpers. Pasting it earlier deletes `$run` while the watch helper
-still needs that directory.
+still needs that directory. After it returns, `run` and `bin` are unset.
 
 ```sh
 omatide_cleanup() {
   local _opts _status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   test -n "${run-}" || _status=1
   if test "$_status" -eq 0; then
     evidence=${EVIDENCE_DIR:-/tmp/omatide-evidence}/$(basename "$run")
-    if test -d "$run/artifacts/verify"; then
-      mkdir -p "$evidence" || _status=$?
-      if test "$_status" -eq 0; then
-        cp -a "$run/artifacts/verify/." "$evidence/" || _status=$?
-      fi
+    mkdir -p "$evidence" || _status=$?
+  fi
+  if test "$_status" -eq 0 && test -d "$run/artifacts/verify"; then
+    cp -a "$run/artifacts/verify/." "$evidence/" || _status=$?
+  fi
+  if test "$_status" -eq 0 && test -f "$run/fetch.log"; then
+    mkdir -p "$evidence/launch" || _status=$?
+    if test "$_status" -eq 0; then
+      cp -a "$run/fetch.log" "$evidence/launch/fetch.log" || _status=$?
+    fi
+  fi
+  if test "$_status" -eq 0 && test -f "$run/data/omatide/stations.json"; then
+    mkdir -p "$evidence/launch" || _status=$?
+    if test "$_status" -eq 0; then
+      cp -a "$run/data/omatide/stations.json" "$evidence/launch/stations.json" || _status=$?
+    fi
+  fi
+  if test "$_status" -eq 0 && test -f "$run/engine.log"; then
+    mkdir -p "$evidence/engine" || _status=$?
+    if test "$_status" -eq 0; then
+      cp -a "$run/engine.log" "$evidence/engine/engine.log" || _status=$?
+    fi
+  fi
+  if test "$_status" -eq 0 && test -f "$run/window-engine.log"; then
+    mkdir -p "$evidence/window" || _status=$?
+    if test "$_status" -eq 0; then
+      cp -a "$run/window-engine.log" "$evidence/window/window-engine.log" || _status=$?
     fi
   fi
   if test "$_status" -eq 0; then
@@ -417,6 +554,9 @@ omatide_cleanup() {
   fi
   if test "$_status" -eq 0; then
     test ! -d "$run" || _status=$?
+  fi
+  if test "$_status" -eq 0; then
+    unset run bin
   fi
   if test "$_status" -eq 0; then
     test -d "$evidence" || _status=$?

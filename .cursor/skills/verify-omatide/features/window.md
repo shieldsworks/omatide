@@ -27,14 +27,12 @@ Preconditions.
 - Stop any engine already listening on `$run/omatide/tide.sock` before **Start the engine**.
 - Quickshell and Hyprland are required for the painted window. This VM has neither. `window-launch`, the keys, the IPC call, and the painted notice were not driven. The other steps are the substitutes that were run. They are not a screenshot.
 
-- **Open the window.** Run `./run.sh` inside this run's environment. An empty `WAYLAND_DISPLAY` is unreachable. A relative name is the socket under the current `XDG_RUNTIME_DIR`. An absolute path is that path. A real socket is passed through as an absolute path, after `$run/env`, so the engine still uses `$run`. A missing socket is written to `wayland.txt`. `./run.sh` is not given a stand-in path. The probe still requires `XDG_RUNTIME_DIR` to be `$run`. `timeout 3` stops the fence from waiting on Quickshell.
+- **Open the window.** Run `./run.sh` inside this run's environment. An empty `WAYLAND_DISPLAY` is unreachable. A relative name is the socket under the current `XDG_RUNTIME_DIR` when that directory is absolute. An absolute path is that path. A real socket is passed through as an absolute path, after `$run/env`, so the engine still uses `$run`. A missing socket is written to `wayland.txt`. `./run.sh` is not given a stand-in path. Unreachable returns non-zero. The probe still requires `XDG_RUNTIME_DIR` to be `$run`. `timeout 3` stops the fence from waiting on Quickshell. With `quickshell` on `PATH`, exit 0 is the pass. A crash or timeout 124 fails. Without `quickshell`, exit 127 is the pass.
 
 ```sh
 omatide_window_open() {
   local _opts _status display runtime socket probe run_status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   wayland_abs=
   test -n "${run-}" || _status=1
@@ -74,10 +72,14 @@ omatide_window_open() {
     fi
   fi
   if test "$_status" -eq 0; then
-    probe=$(env $(cat "$run/env") sh -c 'printf %s "$XDG_RUNTIME_DIR"') || _status=$?
+    test -n "${run-}" && omatide_env_ok "$run/env" \
+      && probe=$(env $(cat "$run/env") sh -c 'printf %s "$XDG_RUNTIME_DIR"') || _status=$?
   fi
   if test "$_status" -eq 0; then
     test "$probe" = "$run" || _status=$?
+  fi
+  if test "$_status" -eq 0 && test -z "${wayland_abs-}"; then
+    _status=1
   fi
   if test "$_status" -eq 0 && test -n "${wayland_abs-}"; then
     timeout 3 env $(cat "$run/env") WAYLAND_DISPLAY="$wayland_abs" ./run.sh \
@@ -85,8 +87,12 @@ omatide_window_open() {
       2>"$run/artifacts/verify/window/run.err"
     run_status=$?
     printf '%s\n' "$run_status" > "$run/artifacts/verify/window/run.status" || _status=$?
-    if test "$_status" -eq 0 && ! command -v quickshell >/dev/null 2>&1; then
-      test "$run_status" -eq 127 || _status=$?
+    if test "$_status" -eq 0; then
+      if command -v quickshell >/dev/null 2>&1; then
+        test "$run_status" -eq 0 || _status=1
+      else
+        test "$run_status" -eq 127 || _status=1
+      fi
     fi
   fi
   omatide_fence_finish "$_status" "$_opts"
@@ -95,18 +101,16 @@ omatide_window_open() {
 omatide_window_open
 ```
 
-  Observed on 2026-10-14, with Quickshell absent, `./run.sh` exited 127 and stderr was `./run.sh: line 7: exec: quickshell: not found`. The painted window was not driven. An empty `WAYLAND_DISPLAY` does not run that command. The probe still required `XDG_RUNTIME_DIR` to be `$run`.
+  Observed on 2026-10-14, with Quickshell absent and `WAYLAND_DISPLAY` empty, the fence returned 1. `wayland.txt` said `WAYLAND_DISPLAY is empty` and `not run: ./run.sh`. The painted window was not driven. The probe still required `XDG_RUNTIME_DIR` to be `$run`. A real socket with Quickshell absent exited 127. A real socket with Quickshell present has to exit 0. Exit 124 and any other crash fail that case.
 - **Start the engine.** The script in `ui/Tide.qml` is `mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"`. The fence starts that script in the background, checks the pid and `$run/omatide/tide.sock`, records a `timeout 2` watch, checks a second `omatide run` exits 1, then stops the pid. It does not wait in the foreground.
 
 ```sh
 omatide_window_start() {
   local _opts _status script i watch_status second_status pid
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   script='mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"'
-  test -n "${run-}" && test -n "${bin-}" || _status=1
+  test -n "${run-}" && test -n "${bin-}" && omatide_env_ok "$run/env" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/window" || _status=$?
   fi
@@ -116,7 +120,7 @@ omatide_window_start() {
       >"$run/artifacts/verify/window/start.out" \
       2>"$run/artifacts/verify/window/start.err" &
     pid=$!
-    OMATIDE_FENCE_PIDS=$pid
+    omatide_fence_pid "$pid"
     echo "$pid" > "$run/window.pid"
     i=0
     while test "$i" -lt 25; do
@@ -175,9 +179,7 @@ omatide_window_start
 ```sh
 omatide_window_path() {
   local _opts _status
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   test -n "${run-}" || _status=1
   if test "$_status" -eq 0; then
@@ -206,12 +208,10 @@ omatide_window_path
 ```sh
 omatide_window_missing() {
   local _opts _status script miss
-  _opts=$(set +o)
-  set -euo pipefail
-  set +e
+  omatide_fence_save _opts
   _status=0
   script='mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omatide; exec "$b" run 2>>"$3"'
-  test -n "${run-}" || _status=1
+  test -n "${run-}" && omatide_env_ok "$run/env" || _status=1
   if test "$_status" -eq 0; then
     mkdir -p "$run/artifacts/verify/window" || _status=$?
   fi
