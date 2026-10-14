@@ -41,7 +41,27 @@ Preconditions.
 - **Home.** Run `omatide tide`. Exit 0. The first line is the same station line. This catalog has one tide station, so home at the Berkeley Marina still resolves to Golden Gate.
 - **A position.** Run `omatide tide 37.8063,-122.4659`. Exit 0. The first line is the same station line.
 - **The list.** Run `omatide stations`. Exit 0. Stdout contains `9414290` and `SAN FRANCISCO (Golden Gate)`. Observed on 2026-10-14 it also contained `PCT0286-1` and `Fort Point, 0.5 nmi. east of`.
-- **No catalog.** Run the same binary with `OMATIDE_DATA_DIR` set to an empty directory and the argument `9414290`. Exit 1. The last stderr line is Run `omatide fetch` first. Observed on 2026-10-14 the first stderr line ended with `No such file or directory (os error 2)`.
+- **No catalog.** Use `$run/env.empty` so `OMATIDE_DATA_DIR` is `$run/empty` after the rest of the run's env. Exit 1. The last stderr line keeps the backticks.
+
+```sh
+set -euo pipefail
+: "${run:?}"
+mkdir -p "$run/artifacts/verify/tide"
+set +e
+env $(cat "$run/env.empty") "$bin" tide 9414290 \
+  >"$run/artifacts/verify/tide/missing.out" \
+  2>"$run/artifacts/verify/tide/missing.err"
+status=$?
+set -e
+test "$status" -eq 1
+last=$(tail -n 1 "$run/artifacts/verify/tide/missing.err")
+test "$last" = 'Run `omatide fetch` first.'
+grep -F 'No such file or directory (os error 2)' \
+  "$run/artifacts/verify/tide/missing.err"
+test -f "$run/data/omatide/stations.json"
+```
+
+  Observed on 2026-10-14 the first stderr line ended with `No such file or directory (os error 2)`.
 - **Unknown station.** Run `omatide tide SFB9999`. Exit 1. Stderr is `omatide: no station SFB9999`.
 - **Proof.** Save each command's stdout, stderr, and exit code under `$run/artifacts/verify/tide/`. The second look is the `9414290` line in `stations.json` and in `omatide stations`.
 

@@ -21,11 +21,23 @@ The repository root is `git rev-parse --show-toplevel`. This proof used
 
 - Start every recipe from the baseline unless its preconditions say otherwise.
 - Commands are literal. Keep quoted names and flags unchanged.
-- Every `omatide` command below means `env $(cat "$run/env") "$bin"`.
+- Every `omatide` command below means these two lines. `$run` is already set.
+
+```sh
+: "${run:?}"
+env $(cat "$run/env") "$bin"
+```
+
+  A no-catalog command uses `$run/env.empty` in place of `$run/env`. The
+  empty directory's `OMATIDE_DATA_DIR` is the last assignment in that
+  file. An export before `env` loses to whichever file `env` reads.
 - Prefer stable handles. Station ids, the phrases in the terminal, and
   message types from `docs/protocol.md` are the handles. Heights, speeds,
   and timestamps move. Match the tokens a recipe names, not the whole line.
-- Do not delete proof during cleanup.
+  `keel` may be `connecting` while omakeel has not answered. That value is
+  in `engine.md`.
+- Cleanup copies proof into the per-run evidence directory and then
+  deletes `$run`. Leave the evidence directory in place.
 
 ## Proof and skip reporting
 

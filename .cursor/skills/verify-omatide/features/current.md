@@ -32,7 +32,23 @@ PCT0286-1 — Fort Point, 0.5 nmi. east of
 
 - **Named bin.** Run `omatide current PCT0286-1`. Exit 0. The first line matches the home run.
 - **The list.** Run `omatide stations current`. Exit 0. Stdout contains `PCT0286-1` and does not contain `9414290`.
-- **No catalog.** Run with `OMATIDE_DATA_DIR` set to an empty directory. Exit 1. The last stderr line is Run `omatide fetch` first.
+- **No catalog.** Use `$run/env.empty`. Exit 1. The last stderr line keeps the backticks.
+
+```sh
+set -euo pipefail
+: "${run:?}"
+mkdir -p "$run/artifacts/verify/current"
+set +e
+env $(cat "$run/env.empty") "$bin" current \
+  >"$run/artifacts/verify/current/missing.out" \
+  2>"$run/artifacts/verify/current/missing.err"
+status=$?
+set -e
+test "$status" -eq 1
+last=$(tail -n 1 "$run/artifacts/verify/current/missing.err")
+test "$last" = 'Run `omatide fetch` first.'
+test -f "$run/data/omatide/stations.json"
+```
 - **Proof.** Save stdout, stderr, and the exit code under `$run/artifacts/verify/current/`. The second look is `"id": "PCT0286"` in `stations.json`.
 
 ## Gotchas
