@@ -12,6 +12,10 @@ run = "cargo build --locked"
 description = "Unit tests, and the predictions checked against NOAA"
 run = "cargo test --locked"
 
+[tasks.test-agent]
+description = "cargo test in its own session, so no signal reaches the caller"
+run = "setsid -w cargo test --locked"
+
 [tasks.lint]
 description = "rustfmt check and clippy with warnings denied"
 run = [
