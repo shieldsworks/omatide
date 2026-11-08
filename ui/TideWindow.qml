@@ -353,7 +353,7 @@ Item {
             // ------------------------------------------------- the bay
             Line {
                 id: bayLabel
-                visible: Tide.bayInRegion
+                visible: Tide.hasBay
                 anchors.top: charts.bottom
                 anchors.topMargin: 8
                 anchors.left: parent.left
@@ -372,7 +372,7 @@ Item {
 
             BayChart {
                 id: map
-                visible: Tide.bayInRegion
+                visible: Tide.hasBay
                 anchors.top: bayLabel.bottom
                 anchors.topMargin: 4
                 anchors.left: parent.left
@@ -386,7 +386,7 @@ Item {
             // --------------------------------------------- the scrubber
             Item {
                 id: scrub
-                visible: Tide.bayInRegion
+                visible: Tide.hasBay
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom

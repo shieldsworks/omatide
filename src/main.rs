@@ -134,6 +134,7 @@ fn serve(args: &[String]) -> Result<(), String> {
         data: cache::data_dir(),
         settings: config::config_path(),
         clock: time::now,
+        tick: engine::TICK,
     };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
