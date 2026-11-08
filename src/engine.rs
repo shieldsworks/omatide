@@ -44,7 +44,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_LINE: usize = 64 * 1024;
 /// The state is re-sent this often even when nothing else happens, so a
 /// countdown to the next slack stays honest.
-const TICK: Duration = Duration::from_secs(30);
+pub const TICK: Duration = Duration::from_secs(30);
 /// How far ahead `state` looks for turns.
 const AHEAD: i64 = 3 * 86_400;
 /// The most points a curve may carry: a fortnight at ten minutes.
@@ -64,6 +64,8 @@ pub struct Config {
     pub settings: PathBuf,
     /// Unix seconds now. Tests pin it.
     pub clock: fn() -> i64,
+    /// How often settings and the catalog are checked and the state re-sent.
+    pub tick: Duration,
 }
 
 /// `$XDG_RUNTIME_DIR/omatide/tide.sock`.
@@ -86,6 +88,7 @@ struct Tide {
     settings: Settings,
     problems: Vec<String>,
     settings_seen: Option<SystemTime>,
+    catalog_seen: Option<SystemTime>,
     catalog: Catalog,
     catalog_problem: Option<String>,
     boat: Option<Boat>,
@@ -118,6 +121,29 @@ impl Tide {
         self.problems = problems;
     }
 
+    /// Picks up a catalog `omatide fetch` wrote while the engine ran. A
+    /// catalog that no longer loads is reported and the old one kept.
+    fn reload_catalog(&mut self) {
+        let seen = fs::metadata(cache::catalog_path(&self.config.data))
+            .and_then(|m| m.modified())
+            .ok();
+        if seen == self.catalog_seen {
+            return;
+        }
+        self.catalog_seen = seen;
+        match cache::load(&self.config.data) {
+            Ok(catalog) => {
+                self.catalog = catalog;
+                self.catalog_problem = None;
+            }
+            Err(e) => {
+                let problem = format!("{e}; run `omatide fetch`");
+                eprintln!("omatide: {problem}");
+                self.catalog_problem = Some(problem);
+            }
+        }
+    }
+
     /// The whole picture, as one `state` message.
     fn state(&self) -> Value {
         let now = self.now();
@@ -142,7 +168,9 @@ impl Tide {
         if let Some(current) = self.nearest(lat, lon, Kind::Current, now) {
             m.insert("current".into(), current);
         }
-        m.insert("bay".into(), self.bay(now));
+        if self.settings.region.intersects(&bay::FRAME) {
+            m.insert("bay".into(), self.bay(now));
+        }
         let mut problems = self.problems.clone();
         if let Some(p) = &self.catalog_problem {
             problems.push(p.clone());
@@ -658,6 +686,9 @@ fn encode(v: &Value) -> Arc<str> {
 
 pub async fn run(config: Config) -> io::Result<()> {
     let (listener, _socket) = bind(&config.socket)?;
+    let catalog_seen = fs::metadata(cache::catalog_path(&config.data))
+        .and_then(|m| m.modified())
+        .ok();
     let (catalog, catalog_problem) = match cache::load(&config.data) {
         Ok(c) => (c, None),
         Err(e) => (
@@ -669,6 +700,7 @@ pub async fn run(config: Config) -> io::Result<()> {
         settings: Settings::default(),
         problems: Vec::new(),
         settings_seen: None,
+        catalog_seen,
         catalog,
         catalog_problem,
         boat: None,
@@ -702,8 +734,9 @@ pub async fn run(config: Config) -> io::Result<()> {
     }
     {
         let events = events.clone();
+        let tick = tide.config.tick;
         tokio::spawn(async move {
-            let mut ticker = interval(TICK);
+            let mut ticker = interval(tick);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
@@ -736,6 +769,7 @@ pub async fn run(config: Config) -> io::Result<()> {
                 match event {
                     Event::Tick => {
                         tide.reload_settings();
+                        tide.reload_catalog();
                         changed = true;
                     }
                     Event::Keel(update) => {

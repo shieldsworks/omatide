@@ -38,6 +38,8 @@ QtObject {
     readonly property var water: state && isPlace(state.tide) ? state.tide : null
     readonly property var stream: state && isPlace(state.current) ? state.current : null
     readonly property var bay: state && Array.isArray(state.bay) ? state.bay.filter(isArrow) : []
+    // The engine leaves the bay out when the region doesn't meet it.
+    readonly property bool hasBay: !!state && Array.isArray(state.bay)
     readonly property var problems: state && Array.isArray(state.problems) ? state.problems : []
     readonly property bool hasCatalog: !!state && !!state.stations
         && (state.stations.tide > 0 || state.stations.current > 0)

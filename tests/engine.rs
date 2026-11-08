@@ -74,8 +74,15 @@ fn start(name: &str) -> Engine {
 }
 
 fn start_with_keel(name: &str, keel: Option<PathBuf>) -> Engine {
+    start_with(name, keel, None)
+}
+
+fn start_with(name: &str, keel: Option<PathBuf>, settings: Option<&str>) -> Engine {
     let dir = scratch(name);
     catalog(&dir);
+    if let Some(text) = settings {
+        std::fs::write(dir.join("config.toml"), text).unwrap();
+    }
     let socket = dir.join("tide.sock");
     let config = engine::Config {
         socket: socket.clone(),
@@ -83,6 +90,7 @@ fn start_with_keel(name: &str, keel: Option<PathBuf>) -> Engine {
         data: dir.clone(),
         settings: dir.join("config.toml"),
         clock,
+        tick: engine::TICK,
     };
     let thread = std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -167,6 +175,7 @@ fn an_app_is_greeted_and_told_the_whole_state() {
     assert_eq!(state["time"], "2026-09-20T12:00:00Z");
     // No omakeel, so the tide is reported at home.
     assert_eq!(state["here"]["at"], "home");
+    assert!(state["bay"].is_array());
     assert_eq!(state["stations"]["tide"], 1);
     assert_eq!(state["stations"]["current"], 2);
 
@@ -283,6 +292,7 @@ fn two_engines_cant_share_one_socket() {
         data: engine.socket.parent().unwrap().to_path_buf(),
         settings: engine.socket.with_file_name("config.toml"),
         clock,
+        tick: engine::TICK,
     };
     let e = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -432,4 +442,62 @@ fn a_lost_keel_falls_back_to_home() {
     // And the answers follow it home.
     assert_ne!(home["tide"]["station"], Value::Null);
     assert_eq!(at_boat, json!("GATE"));
+}
+
+#[test]
+fn the_bay_is_left_out_of_the_state_where_the_region_misses_it() {
+    let engine = start_with(
+        "region",
+        None,
+        Some("region = 46.7, -123.5, 48.7, -121.3\n"),
+    );
+    let mut app = App::connect(&engine);
+    assert_eq!(app.read()["type"], "hello");
+    let state = app.read();
+    assert_eq!(state["stations"]["tide"], 1);
+    assert!(state.get("bay").is_none());
+}
+
+#[test]
+fn a_catalog_fetched_while_the_engine_runs_is_picked_up() {
+    let dir = scratch("late-catalog");
+    let socket = dir.join("tide.sock");
+    let config = engine::Config {
+        socket: socket.clone(),
+        keel: None,
+        data: dir.clone(),
+        settings: dir.join("config.toml"),
+        clock,
+        tick: Duration::from_millis(100),
+    };
+    let _thread = std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(engine::run(config))
+            .unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !socket.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut app = App::connect(&Engine {
+        socket,
+        _thread: std::thread::spawn(|| {}),
+    });
+    assert_eq!(app.read()["type"], "hello");
+    let state = app.read();
+    assert_eq!(state["stations"]["tide"], 0);
+    assert!(state["problems"].is_array());
+
+    catalog(&dir);
+    let state = loop {
+        let state = app.read();
+        if state["stations"]["tide"] == 1 {
+            break state;
+        }
+    };
+    assert_eq!(state["stations"]["current"], 2);
+    assert!(state.get("problems").is_none());
 }

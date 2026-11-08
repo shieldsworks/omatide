@@ -36,6 +36,14 @@ impl Region {
         (self.south..=self.north).contains(&lat) && (self.west..=self.east).contains(&lon)
     }
 
+    /// Whether the two boxes share any sea.
+    pub fn intersects(&self, other: &Region) -> bool {
+        self.south <= other.north
+            && other.south <= self.north
+            && self.west <= other.east
+            && other.west <= self.east
+    }
+
     pub fn parse(s: &str) -> Option<Region> {
         let n: Vec<f64> = s
             .split(',')
@@ -337,6 +345,23 @@ mod tests {
         assert_eq!(Region::parse("38.8,-123.8,36.8,-121.6"), None);
         assert_eq!(Region::parse("1,2,3"), None);
         assert_eq!(Region::parse("a,b,c,d"), None);
+    }
+
+    #[test]
+    fn a_region_meets_the_bays_chart_or_it_does_not() {
+        use crate::bay::FRAME;
+        assert!(Region::BAY.intersects(&FRAME));
+        assert!(
+            Region::parse("37.9,-122.6,38.9,-122.3")
+                .unwrap()
+                .intersects(&FRAME)
+        );
+        assert!(
+            !Region::parse("46.687,-123.513,48.687,-121.313")
+                .unwrap()
+                .intersects(&FRAME)
+        );
+        assert!(!Region::parse("30,-123,37,-121").unwrap().intersects(&FRAME));
     }
 
     #[test]

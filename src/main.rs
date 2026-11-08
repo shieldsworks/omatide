@@ -134,6 +134,7 @@ fn serve(args: &[String]) -> Result<(), String> {
         data: cache::data_dir(),
         settings: config::config_path(),
         clock: time::now,
+        tick: engine::TICK,
     };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -317,8 +318,16 @@ fn bay(args: &[String]) -> Result<(), String> {
         Some(v) => time::parse_iso(v).ok_or("at: expected a UTC time like 2026-09-20T17:00:00Z")?,
         None => time::now(),
     };
-    let catalog = open()?;
     let settings = settings();
+    let r = settings.region;
+    if !r.intersects(&bay::FRAME) {
+        return Err(format!(
+            "the region in the settings ({}, {}, {}, {}) is not San Francisco Bay; \
+             `bay` needs a region that includes some of it",
+            r.south, r.west, r.north, r.east
+        ));
+    }
+    let catalog = open()?;
     println!("San Francisco Bay at {}", time::iso(at));
     println!("\nThe tide, height above chart datum:");
     for (place, key) in bay::resolve(&catalog, bay::TIDE_PLACES, settings.depth) {

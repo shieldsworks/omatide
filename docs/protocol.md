@@ -81,7 +81,8 @@ copy.
   it runs.
 - `bay` is San Francisco Bay's named narrows at this moment, in the order
   you sail them: in from the sea, up to the delta, then down the east
-  shore. It is empty outside the bay.
+  shore. It is left out when the region in the settings doesn't meet San
+  Francisco Bay, and an app then hides the bay chart.
 
 ## Client requests
 
