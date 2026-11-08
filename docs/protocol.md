@@ -50,6 +50,7 @@ copy.
  "time":"2026-09-20T17:12:00Z",
  "keel":"connected",
  "here":{"lat":37.86630,"lon":-122.31480,"at":"boat"},
+ "region":{"south":36.8,"west":-123.8,"north":38.8,"east":-121.6},
  "stations":{"tide":122,"current":295},
  "tide":{"station":"9414816","name":"Berkeley","lat":37.86500,"lon":-122.30700,
          "distanceNm":0.38,"heightM":1.372,"rising":false,
@@ -67,6 +68,8 @@ copy.
 
 - `keel` is `connected`, `lost`, `incompatible`, or `off` when omatide was
   started `--no-keel`.
+- `region` is the box in the settings that the catalog covers. An app shows
+  the bay chart only when it meets San Francisco Bay.
 - `here.at` is `boat` when omakeel has a fix and `home` otherwise.
 - `tide` and `current` are the nearest predictable station of each kind,
   and are left out when there is none within 60 nautical miles. A current

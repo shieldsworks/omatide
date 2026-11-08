@@ -25,6 +25,7 @@ for years.
   is still ebbing through Raccoon Strait. Omatide carries every station
   NOAA has in the bay — 122 tide stations and 295 current bins — and draws
   the bay's narrows as a current chart you can drag through time.
+  The chart shows only when the region in the settings includes some of the bay.
 - **A bar widget**, with the height, which way it is going, and the next
   turn.
 
@@ -81,6 +82,7 @@ omatide stations  list the stations omatide has
 omatide tide      the tide at a station, or the nearest one to a position
 omatide current   the stream at a station, or the nearest one
 omatide bay       the stream everywhere in San Francisco Bay at one moment
+                  (says so, and stops, when the region is not the Bay)
 ```
 
 ## Settings

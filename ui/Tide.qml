@@ -38,6 +38,14 @@ QtObject {
     readonly property var water: state && isPlace(state.tide) ? state.tide : null
     readonly property var stream: state && isPlace(state.current) ? state.current : null
     readonly property var bay: state && Array.isArray(state.bay) ? state.bay.filter(isArrow) : []
+    // The bay chart only means something where the bay is. Without a region
+    // in the state (an older engine), assume it does.
+    readonly property bool bayInRegion: {
+        const r = state ? state.region : null;
+        if (!r || typeof r !== "object") return true;
+        const f = {s: 37.45, n: 38.12, w: -122.58, e: -122.02};
+        return r.south <= f.n && f.s <= r.north && r.west <= f.e && f.w <= r.east;
+    }
     readonly property var problems: state && Array.isArray(state.problems) ? state.problems : []
     readonly property bool hasCatalog: !!state && !!state.stations
         && (state.stations.tide > 0 || state.stations.current > 0)

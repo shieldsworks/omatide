@@ -12,7 +12,16 @@
 //! The order runs the way you sail it: in from the sea, up the bay to
 //! the delta, then back down the east shore to the south bay.
 
+use crate::coops::Region;
 use crate::station::{Catalog, Kind};
+
+/// The box the bay chart draws, the same as `frame` in `ui/BayChart.qml`.
+pub const FRAME: Region = Region {
+    south: 37.45,
+    west: -122.58,
+    north: 38.12,
+    east: -122.02,
+};
 
 /// A place on the bay, and the station that speaks for it.
 pub struct Place {

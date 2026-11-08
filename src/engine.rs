@@ -142,6 +142,11 @@ impl Tide {
         if let Some(current) = self.nearest(lat, lon, Kind::Current, now) {
             m.insert("current".into(), current);
         }
+        let r = self.settings.region;
+        m.insert(
+            "region".into(),
+            json!({"south": r.south, "west": r.west, "north": r.north, "east": r.east}),
+        );
         m.insert("bay".into(), self.bay(now));
         let mut problems = self.problems.clone();
         if let Some(p) = &self.catalog_problem {
