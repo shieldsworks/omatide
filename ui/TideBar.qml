@@ -3,9 +3,9 @@ import Quickshell
 import qs.Ui
 import qs.Commons
 
-// The tide at the boat in the bar, like "1.4↓ LW 20:47": the height above
-// chart datum now, which way it is going, and the next turn. Click for the
-// stream as well, and the bay's narrows.
+// The tide at the boat in the bar, labeled Tide. The height above chart
+// datum now, which way it is going, and the next turn are in the tooltip.
+// Click for the stream as well, and the bay's narrows.
 BarWidget {
     id: root
     moduleName: "org.omahoy.tide"
@@ -30,17 +30,21 @@ BarWidget {
         const turns = Tide.turnsOf(root.water, "heightM");
         return turns.length ? turns[0] : null;
     }
-    readonly property string label: {
-        if (Tide.incompatible) return "TIDE ?";
-        if (!Tide.connected || !Tide.state) return "TIDE";
-        if (!root.water) return "TIDE –";
-        const height = root.water.heightM.toFixed(1) + (root.water.rising ? "↑" : "↓");
-        if (!root.nextTurn) return height;
-        const which = root.nextTurn.turn === "high" ? "HW" : "LW";
-        return height + " " + which + " " + Tide.clock(root.nextTurn.time);
-    }
+    readonly property string label: "Tide"
     // A stream worth noticing before you leave the dock.
     readonly property bool strong: !!Tide.stream && Tide.stream.knots >= 2.0
+    readonly property string detail: {
+        if (Tide.incompatible) return "omatide speaks another protocol version";
+        if (!Tide.connected || !Tide.state) return Tide.waited ? "omatide isn't running" : "Starting omatide…";
+        if (!Tide.hasCatalog) return "No stations yet: run `omatide fetch`";
+        if (!root.water) return "No tide yet";
+        const height = root.water.heightM.toFixed(1) + (root.water.rising ? "↑" : "↓");
+        const summary = root.nextTurn
+            ? height + " " + (root.nextTurn.turn === "high" ? "HW" : "LW") + " " + Tide.clock(root.nextTurn.time)
+            : height;
+        if (root.strong) return summary + " — The stream is running 2 knots or more";
+        return summary;
+    }
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
@@ -52,13 +56,7 @@ BarWidget {
         text: root.label
         foreground: root.strong ? Color.urgent : (root.bar ? root.bar.barForeground : Color.foreground)
         dimmed: !Tide.connected || !root.water
-        tooltipText: {
-            if (Tide.incompatible) return "omatide speaks another protocol version";
-            if (!Tide.connected) return Tide.waited ? "omatide isn't running" : "Starting omatide…";
-            if (!Tide.hasCatalog) return "No stations yet: run `omatide fetch`";
-            if (root.strong) return "The stream is running 2 knots or more";
-            return "";
-        }
+        tooltipText: root.detail
         onPressed: b => {
             if (b === Qt.LeftButton) {
                 if (root.opened) root.close();
