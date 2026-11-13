@@ -26,8 +26,8 @@ for years.
   NOAA has in the bay — 122 tide stations and 295 current bins — and draws
   the bay's narrows as a current chart you can drag through time.
   The chart shows only when the region in the settings includes some of the bay.
-- **A bar widget**, with the height, which way it is going, and the next
-  turn.
+- **A bar widget**, labeled Tide. The height, which way it is going, and
+  the next turn are in the tooltip; click for the stream and the bay.
 
 ## How right it is
 
