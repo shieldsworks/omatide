@@ -35,7 +35,8 @@ BarWidget {
     readonly property bool strong: !!Tide.stream && Tide.stream.knots >= 2.0
     readonly property string detail: {
         if (Tide.incompatible) return "omatide speaks another protocol version";
-        if (!Tide.connected || !Tide.state) return Tide.waited ? "omatide isn't running" : "Starting omatide…";
+        if (!Tide.connected) return Tide.waited ? "omatide isn't running" : "Starting omatide…";
+        if (!Tide.state) return "No tide yet";
         if (!Tide.hasCatalog) return "No stations yet: run `omatide fetch`";
         if (!root.water) return "No tide yet";
         const height = root.water.heightM.toFixed(1) + (root.water.rising ? "↑" : "↓");
